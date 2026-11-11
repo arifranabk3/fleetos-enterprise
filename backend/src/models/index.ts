@@ -13,6 +13,7 @@ export * from './Driver';
 export * from './Assignment';
 
 // 3. Logistics, Dispatch & Tracking Models
+export * from './Customer';
 export * from './Shipment';
 export * from './Dispatch';
 export * from './Route';

@@ -22,7 +22,7 @@ export interface DemoShipment {
   origin: string;
   destination: string;
   weightKg: number;
-  status: 'PENDING' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED';
+  status: 'DRAFT' | 'PENDING' | 'CONFIRMED' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED';
   driver: string;
   vehiclePlate: string;
   eta: string;

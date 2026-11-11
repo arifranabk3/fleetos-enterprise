@@ -15,6 +15,7 @@ export type PermissionDomain =
   | 'DRIVERS'
   | 'SHIPMENTS'
   | 'DISPATCH'
+  | 'CUSTOMERS'
   | 'TRACKING'
   | 'MAINTENANCE'
   | 'EXPENSES'
@@ -59,12 +60,18 @@ export type DriverStatus =
 export type ShipmentStatus = 
   | 'DRAFT'
   | 'PENDING_DISPATCH'
+  | 'CONFIRMED'
+  | 'READY_FOR_DISPATCH'
   | 'DISPATCHED'
   | 'IN_TRANSIT'
+  | 'ARRIVED_AT_DESTINATION'
   | 'OUT_FOR_DELIVERY'
   | 'DELIVERED'
-  | 'EXCEPTION'
-  | 'CANCELLED';
+  | 'ON_HOLD'
+  | 'DELAYED'
+  | 'FAILED_DELIVERY'
+  | 'CANCELLED'
+  | 'RETURNED';
 
 export interface GeoLocation {
   latitude: number;

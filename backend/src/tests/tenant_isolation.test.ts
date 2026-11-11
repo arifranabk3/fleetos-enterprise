@@ -69,7 +69,7 @@ async function runComprehensiveTenantIsolationSuite() {
       lastName: 'Dispatcher',
       email: 'alice@apex.com',
       passwordHash: 'hash_a',
-      role: 'DISPATCH_MANAGER',
+      role: 'DISPATCHER',
     });
 
     const userB = await User.create({
@@ -78,19 +78,19 @@ async function runComprehensiveTenantIsolationSuite() {
       lastName: 'Manager',
       email: 'bob@pacific.com',
       passwordHash: 'hash_b',
-      role: 'ORGANIZATION_ADMIN',
+      role: 'ADMIN',
     });
 
     await OrganizationMember.create({
       organizationId: orgA._id,
       userId: userA._id,
-      role: 'DISPATCH_MANAGER',
+      role: 'DISPATCHER',
     });
 
     await OrganizationMember.create({
       organizationId: orgB._id,
       userId: userB._id,
-      role: 'ORGANIZATION_ADMIN',
+      role: 'ADMIN',
     });
 
     console.log('✓ TEST 2: Verified user creation & organization membership scoping.');
@@ -177,20 +177,26 @@ async function runComprehensiveTenantIsolationSuite() {
       trackingNumber: 'SHP-APEX-01',
       status: 'DELIVERED',
       customer: { name: 'Cust 1', email: 'c1@test.com', phone: '123' },
+      sender: { name: 'S1', phone: '123', address: 'Addr 1', city: 'A', country: 'USA' },
+      receiver: { name: 'R1', phone: '456', address: 'Addr 2', city: 'B', country: 'USA' },
       origin: { address: 'A', city: 'A', latitude: 10, longitude: 10 },
       destination: { address: 'B', city: 'B', latitude: 20, longitude: 20 },
-      cargo: { description: 'Box', weightKg: 5000 },
+      cargo: { description: 'Box', weightKg: 5000, packageCount: 1 },
       pricing: { quotedAmount: 2500, currency: 'USD' },
+      createdBy: userA._id,
     } as any);
 
     await shipmentRepo.create(tenantB, {
       trackingNumber: 'SHP-PAC-01',
       status: 'DELIVERED',
       customer: { name: 'Cust 2', email: 'c2@test.com', phone: '456' },
+      sender: { name: 'S2', phone: '789', address: 'Addr 3', city: 'C', country: 'USA' },
+      receiver: { name: 'R2', phone: '012', address: 'Addr 4', city: 'D', country: 'USA' },
       origin: { address: 'C', city: 'C', latitude: 30, longitude: 30 },
       destination: { address: 'D', city: 'D', latitude: 40, longitude: 40 },
-      cargo: { description: 'Pallet', weightKg: 8000 },
+      cargo: { description: 'Pallet', weightKg: 8000, packageCount: 2 },
       pricing: { quotedAmount: 4000, currency: 'USD' },
+      createdBy: userB._id,
     } as any);
 
     // Aggregate total revenue for Tenant A

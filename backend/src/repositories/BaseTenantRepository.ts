@@ -121,6 +121,31 @@ export class BaseTenantRepository<T extends Document> {
     return { deletedCount: res.deletedCount || 0 };
   }
 
+  async count(
+    tenant: ITenantContext,
+    filter: FilterQuery<T> = {}
+  ): Promise<number> {
+    const scopedFilter = this.applyTenantScope(tenant, filter);
+    return this.model.countDocuments(scopedFilter).exec();
+  }
+
+  async updateById(
+    tenant: ITenantContext,
+    id: string | Types.ObjectId,
+    update: UpdateQuery<T>
+  ): Promise<T | null> {
+    const scopedFilter = this.applyTenantScope(tenant, { _id: id } as FilterQuery<T>);
+
+    if (update && typeof update === 'object') {
+      delete (update as any).organizationId;
+      if (update.$set) {
+        delete update.$set.organizationId;
+      }
+    }
+
+    return this.model.findOneAndUpdate(scopedFilter, update, { new: true }).exec();
+  }
+
   async aggregate(tenant: ITenantContext, pipeline: PipelineStage[]): Promise<any[]> {
     if (!tenant || !tenant.organizationId) {
       throw new Error('SECURITY EXCEPTION: Missing tenant context in aggregation.');
