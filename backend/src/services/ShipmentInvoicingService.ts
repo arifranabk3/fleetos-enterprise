@@ -43,11 +43,16 @@ export class ShipmentInvoicingService {
       throw new Error('SHIPMENT_ACCESS_DENIED: One or more requested shipments do not exist in organization.');
     }
 
-    // 2. Validate shipment status: only DELIVERED shipments can be billed
+    // 2. Validate shipment status and acquire atomic lock check
     for (const sh of shipments) {
       if (sh.status !== 'DELIVERED') {
         throw new Error(
           `INELIGIBLE_SHIPMENT_STATUS: Shipment '${sh.trackingNumber}' is in status '${sh.status}'. Only DELIVERED shipments can be invoiced.`
+        );
+      }
+      if (sh.billedInvoiceId) {
+        throw new Error(
+          `DUPLICATE_SHIPMENT_BILLING: Shipment '${sh.trackingNumber}' is already locked/invoiced in Invoice '${sh.billedInvoiceId}'.`
         );
       }
     }
@@ -71,6 +76,24 @@ export class ShipmentInvoicingService {
 
       throw new Error(
         `DUPLICATE_SHIPMENT_BILLING: Shipment(s) [${Array.from(alreadyBilledShipmentIds).join(', ')}] have already been invoiced in Invoice '${existingInvoices[0].invoiceNumber}'.`
+      );
+    }
+
+    // Atomic CAS update: attempt to lock all shipments with a pending lock
+    const lockResult = await Shipment.updateMany(
+      {
+        _id: { $in: input.shipmentIds },
+        organizationId: orgId,
+        $or: [{ billedInvoiceId: null }, { billedInvoiceId: { $exists: false } }],
+      },
+      {
+        $set: { billedInvoiceId: new Types.ObjectId() }, // Temporary lock token
+      }
+    );
+
+    if (lockResult.matchedCount !== input.shipmentIds.length || lockResult.modifiedCount !== input.shipmentIds.length) {
+      throw new Error(
+        `DUPLICATE_SHIPMENT_BILLING: One or more shipments are already locked by a concurrent invoicing request.`
       );
     }
 
@@ -126,56 +149,72 @@ export class ShipmentInvoicingService {
     const totalAmountCents = subtotalCents + totalFuelSurchargeCents + taxAmountCents;
 
     // 5. Create the invoice
-    const invoice = await Invoice.create({
-      organizationId: orgId,
-      invoiceNumber: input.invoiceNumber,
-      customerId,
-      customer: {
-        name: primaryCustomer.name,
-        email: primaryCustomer.email,
-        billingAddress: shipments[0].sender?.address || '100 Logistics Blvd, Dallas, TX',
-      },
-      shipmentIds: input.shipmentIds,
-      lineItems,
-      rateSnapshot: rateMatrix
-        ? {
-            rateMatrixId: rateMatrix._id as Types.ObjectId,
-            code: rateMatrix.code,
-            version: rateMatrix.version,
-            pricingModel: rateMatrix.pricingModel,
-            baseFeeCents: rateMatrix.baseFeeCents,
-            perKmRateCents: rateMatrix.perKmRateCents,
-            perKgRateCents: rateMatrix.perKgRateCents,
-            fuelSurchargePercent: rateMatrix.fuelSurchargePercent,
-            capturedAt: new Date(),
-          }
-        : undefined,
-      subtotalCents,
-      fuelSurchargeCents: totalFuelSurchargeCents,
-      taxAmountCents,
-      discountCents: 0,
-      totalAmountCents,
-      amountPaidCents: 0,
-      outstandingBalanceCents: totalAmountCents,
-      // Legacy fields
-      subtotalAmount: subtotalCents / 100,
-      taxAmount: taxAmountCents / 100,
-      totalAmount: totalAmountCents / 100,
-      currency: 'USD',
-      status: 'ISSUED',
-      paymentTerms: input.paymentTerms || 'NET_30',
-      issuedAt: new Date(),
-      dueAt: input.dueAt,
-      notes: input.notes,
-      auditTrail: [
-        {
-          action: 'INVOICE_GENERATED_FROM_SHIPMENTS',
-          performedBy: input.createdBy,
-          timestamp: new Date(),
-          note: `Generated from ${shipments.length} delivered shipment(s).`,
+    let invoice;
+    try {
+      invoice = await Invoice.create({
+        organizationId: orgId,
+        invoiceNumber: input.invoiceNumber,
+        customerId,
+        customer: {
+          name: primaryCustomer.name,
+          email: primaryCustomer.email,
+          billingAddress: shipments[0].sender?.address || '100 Logistics Blvd, Dallas, TX',
         },
-      ],
-    });
+        shipmentIds: input.shipmentIds,
+        lineItems,
+        rateSnapshot: rateMatrix
+          ? {
+              rateMatrixId: rateMatrix._id as Types.ObjectId,
+              code: rateMatrix.code,
+              version: rateMatrix.version,
+              pricingModel: rateMatrix.pricingModel,
+              baseFeeCents: rateMatrix.baseFeeCents,
+              perKmRateCents: rateMatrix.perKmRateCents,
+              perKgRateCents: rateMatrix.perKgRateCents,
+              fuelSurchargePercent: rateMatrix.fuelSurchargePercent,
+              capturedAt: new Date(),
+            }
+          : undefined,
+        subtotalCents,
+        fuelSurchargeCents: totalFuelSurchargeCents,
+        taxAmountCents,
+        discountCents: 0,
+        totalAmountCents,
+        amountPaidCents: 0,
+        outstandingBalanceCents: totalAmountCents,
+        // Legacy fields
+        subtotalAmount: subtotalCents / 100,
+        taxAmount: taxAmountCents / 100,
+        totalAmount: totalAmountCents / 100,
+        currency: 'USD',
+        status: 'ISSUED',
+        paymentTerms: input.paymentTerms || 'NET_30',
+        issuedAt: new Date(),
+        dueAt: input.dueAt,
+        notes: input.notes,
+        auditTrail: [
+          {
+            action: 'INVOICE_GENERATED_FROM_SHIPMENTS',
+            performedBy: input.createdBy,
+            timestamp: new Date(),
+            note: `Generated from ${shipments.length} delivered shipment(s).`,
+          },
+        ],
+      });
+
+      // Update shipments to point permanently to the generated invoice
+      await Shipment.updateMany(
+        { _id: { $in: input.shipmentIds }, organizationId: orgId },
+        { $set: { billedInvoiceId: invoice._id } }
+      );
+    } catch (err) {
+      // Release lock on error
+      await Shipment.updateMany(
+        { _id: { $in: input.shipmentIds }, organizationId: orgId },
+        { $set: { billedInvoiceId: null } }
+      );
+      throw err;
+    }
 
     return invoice;
   }

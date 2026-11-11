@@ -93,6 +93,7 @@ export interface IShipment extends Document {
     deliveredAt: Date;
     notes?: string;
   };
+  billedInvoiceId?: Types.ObjectId | null;
   createdBy: Types.ObjectId;
   isArchived: boolean;
   createdAt: Date;
@@ -255,6 +256,12 @@ const ShipmentSchema = new Schema<IShipment>(
     isArchived: {
       type: Boolean,
       default: false,
+      index: true,
+    },
+    billedInvoiceId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Invoice',
+      default: null,
       index: true,
     },
   },

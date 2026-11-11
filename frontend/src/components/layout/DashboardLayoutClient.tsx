@@ -17,7 +17,9 @@ import {
   Menu, 
   X,
   ChevronRight,
-  ShieldCheck
+  ShieldCheck,
+  Receipt,
+  DollarSign
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -26,6 +28,8 @@ const NAV_ITEMS = [
   { label: 'Shipment Overview', href: '/shipments', icon: Boxes },
   { label: 'Live Operations', href: '/operations', icon: MapPin },
   { label: 'Driver Overview', href: '/drivers', icon: Users },
+  { label: 'Billing & Invoicing', href: '/billing', icon: Receipt },
+  { label: 'Driver Settlements', href: '/settlements', icon: DollarSign },
   { label: 'Analytics Preview', href: '/analytics', icon: BarChart3 },
   { label: 'Settings Preview', href: '/settings', icon: Settings },
 ];
