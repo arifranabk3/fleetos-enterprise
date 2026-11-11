@@ -24,6 +24,9 @@ export * from './Geofence';
 
 // 4. Financial & Operational Models
 export * from './MaintenanceRecord';
+export * from './MaintenanceSchedule';
+export * from './MaintenanceVendor';
+export * from './VehicleComplianceDocument';
 export * from './Expense';
 export * from './Invoice';
 

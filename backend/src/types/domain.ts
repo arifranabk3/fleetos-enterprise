@@ -18,6 +18,7 @@ export type PermissionDomain =
   | 'CUSTOMERS'
   | 'TRACKING'
   | 'MAINTENANCE'
+  | 'COMPLIANCE'
   | 'EXPENSES'
   | 'BILLING'
   | 'REPORTS'
