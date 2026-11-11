@@ -10,6 +10,7 @@ export * from './Invitation';
 // 2. Fleet & Asset Management Models
 export * from './Vehicle';
 export * from './Driver';
+export * from './Assignment';
 
 // 3. Logistics, Dispatch & Tracking Models
 export * from './Shipment';

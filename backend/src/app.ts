@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 
 import authRoutes from './routes/authRoutes';
 import organizationRoutes from './routes/organizationRoutes';
+import fleetRoutes from './routes/fleetRoutes';
 
 export const createApp = (): { app: Application; server: http.Server; io: SocketIOServer } => {
   const app = express();
@@ -44,6 +45,7 @@ export const createApp = (): { app: Application; server: http.Server; io: Socket
   // Modular API Routes
   app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1/organizations', organizationRoutes);
+  app.use('/api/v1', fleetRoutes);
 
   // Centralized Error Handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

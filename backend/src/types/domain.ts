@@ -44,7 +44,17 @@ export type VehicleStatus =
   | 'ASSIGNED' 
   | 'IN_TRANSIT' 
   | 'MAINTENANCE' 
-  | 'OUT_OF_SERVICE';
+  | 'OUT_OF_SERVICE'
+  | 'RETIRED';
+
+export type DriverStatus =
+  | 'AVAILABLE'
+  | 'ASSIGNED'
+  | 'ON_DUTY'
+  | 'OFF_DUTY'
+  | 'ON_LEAVE'
+  | 'SUSPENDED'
+  | 'INACTIVE';
 
 export type ShipmentStatus = 
   | 'DRAFT'

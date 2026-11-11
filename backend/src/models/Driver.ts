@@ -1,18 +1,28 @@
 import { Schema, model, Document, Types } from 'mongoose';
+import { DriverStatus } from '../types/domain';
 
 export interface IDriver extends Document {
   organizationId: Types.ObjectId;
-  userId: Types.ObjectId;
+  userId?: Types.ObjectId;
+  fullName: string;
+  email: string;
+  phone: string;
+  address?: string;
   licenseNumber: string;
   licenseClass: string;
   licenseExpiry: Date;
+  employmentStatus: 'FULL_TIME' | 'PART_TIME' | 'CONTRACTOR';
+  status: DriverStatus;
   assignedVehicleId?: Types.ObjectId;
-  status: 'AVAILABLE' | 'ON_DUTY' | 'DRIVING' | 'RESTING' | 'OFF_DUTY';
   rating: number;
   emergencyContact: {
     name: string;
     phone: string;
+    relationship?: string;
   };
+  joiningDate: Date;
+  notes?: string;
+  isArchived: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,12 +38,29 @@ const DriverSchema = new Schema<IDriver>(
     userId: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
     },
+    fullName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    email: {
+      type: String,
+      required: true,
+      trim: true,
+      lowercase: true,
+    },
+    phone: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    address: { type: String },
     licenseNumber: {
       type: String,
       required: true,
       trim: true,
+      uppercase: true,
     },
     licenseClass: {
       type: String,
@@ -43,15 +70,20 @@ const DriverSchema = new Schema<IDriver>(
       type: Date,
       required: true,
     },
-    assignedVehicleId: {
-      type: Schema.Types.ObjectId,
-      ref: 'Vehicle',
+    employmentStatus: {
+      type: String,
+      enum: ['FULL_TIME', 'PART_TIME', 'CONTRACTOR'],
+      default: 'FULL_TIME',
     },
     status: {
       type: String,
-      enum: ['AVAILABLE', 'ON_DUTY', 'DRIVING', 'RESTING', 'OFF_DUTY'],
+      enum: ['AVAILABLE', 'ASSIGNED', 'ON_DUTY', 'OFF_DUTY', 'ON_LEAVE', 'SUSPENDED', 'INACTIVE'],
       default: 'AVAILABLE',
       index: true,
+    },
+    assignedVehicleId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Vehicle',
     },
     rating: {
       type: Number,
@@ -62,7 +94,14 @@ const DriverSchema = new Schema<IDriver>(
     emergencyContact: {
       name: { type: String, default: 'Dispatch Center' },
       phone: { type: String, default: '+1-800-555-0199' },
+      relationship: { type: String, default: 'Employer' },
     },
+    joiningDate: {
+      type: Date,
+      default: Date.now,
+    },
+    notes: { type: String },
+    isArchived: { type: Boolean, default: false, index: true },
   },
   {
     timestamps: true,
@@ -71,7 +110,7 @@ const DriverSchema = new Schema<IDriver>(
 
 // Compound tenant isolation index: license unique within organization
 DriverSchema.index({ organizationId: 1, licenseNumber: 1 }, { unique: true });
-DriverSchema.index({ organizationId: 1, userId: 1 }, { unique: true });
+DriverSchema.index({ organizationId: 1, email: 1 });
+DriverSchema.index({ organizationId: 1, status: 1, isArchived: 1 });
 
 export const Driver = model<IDriver>('Driver', DriverSchema);
-
