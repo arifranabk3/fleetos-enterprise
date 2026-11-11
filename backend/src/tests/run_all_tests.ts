@@ -48,6 +48,11 @@ const SUITES: SuiteDefinition[] = [
     file: 'src/tests/driver_workforce.test.ts',
     expectedTests: 25,
   },
+  {
+    name: 'Phase 10: Financial Architecture & Ledger Foundation',
+    file: 'src/tests/financial_foundation.test.ts',
+    expectedTests: 24,
+  },
 ];
 
 async function runCommand(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
