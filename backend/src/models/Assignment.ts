@@ -75,5 +75,17 @@ AssignmentSchema.index({ organizationId: 1, vehicleId: 1, status: 1 });
 AssignmentSchema.index({ organizationId: 1, driverId: 1, status: 1 });
 AssignmentSchema.index({ organizationId: 1, assignedAt: -1 });
 
+// Phase 09.1 Database-level partial unique indexes:
+// Guarantees at most ONE ACTIVE assignment per vehicle and per driver within an organization
+AssignmentSchema.index(
+  { organizationId: 1, vehicleId: 1 },
+  { unique: true, partialFilterExpression: { status: 'ACTIVE' } }
+);
+
+AssignmentSchema.index(
+  { organizationId: 1, driverId: 1 },
+  { unique: true, partialFilterExpression: { status: 'ACTIVE' } }
+);
+
 export const Assignment = model<IAssignment>('Assignment', AssignmentSchema);
 

@@ -46,7 +46,7 @@ const SUITES: SuiteDefinition[] = [
   {
     name: 'Phase 09: Driver Performance, Safety & Workforce Management',
     file: 'src/tests/driver_workforce.test.ts',
-    expectedTests: 20,
+    expectedTests: 25,
   },
 ];
 

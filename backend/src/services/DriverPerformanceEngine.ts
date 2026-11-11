@@ -95,7 +95,7 @@ export class DriverPerformanceEngine {
     const completionRatePercent = totalEligible > 0 ? Math.round((completedDeliveries / totalEligible) * 1000) / 10 : 100;
     const onTimeDeliveryRatePercent = completedDeliveries > 0 ? Math.round((onTimeCount / completedDeliveries) * 1000) / 10 : 100;
 
-    // 2. Safety & Incidents
+    // 2. Safety & Incidents (Fairness: only validated reviewed incidents deduct safety points)
     const incidents = await DriverIncident.find({
       organizationId: orgId,
       driverId: drvId,
@@ -105,13 +105,30 @@ export class DriverPerformanceEngine {
     const totalIncidents = incidents.length;
     const criticalIncidents = incidents.filter((i) => i.severity === 'CRITICAL' || i.severity === 'HIGH').length;
 
-    // Safety score deduction: 100 base, -15 per minor, -30 per high/critical
+    // Safety score deduction: 100 base
+    // Only RESOLVED or CLOSED incidents with confirmed DRIVER_RESPONSIBLE or SHARED_RESPONSIBILITY deduct points
+    // OPEN, UNDER_REVIEW, and DRIVER_NOT_RESPONSIBLE are strictly excluded from deductions.
     let safetyScore = 100;
     incidents.forEach((i) => {
-      if (i.severity === 'CRITICAL') safetyScore -= 35;
-      else if (i.severity === 'HIGH') safetyScore -= 20;
-      else if (i.severity === 'MEDIUM') safetyScore -= 10;
-      else safetyScore -= 5;
+      const isConcluded = i.status === 'RESOLVED' || i.status === 'CLOSED';
+      if (!isConcluded) return; // Fair: Allegation under review never penalizes score
+
+      let multiplier = 0;
+      if (i.responsibilityStatus === 'DRIVER_RESPONSIBLE') {
+        multiplier = 1.0;
+      } else if (i.responsibilityStatus === 'SHARED_RESPONSIBILITY') {
+        multiplier = 0.5; // Documented half deduction for shared responsibility
+      } else {
+        return; // DRIVER_NOT_RESPONSIBLE or UNDETERMINED: zero deduction
+      }
+
+      let deduction = 5;
+      if (i.severity === 'CRITICAL') deduction = 35;
+      else if (i.severity === 'HIGH') deduction = 20;
+      else if (i.severity === 'MEDIUM') deduction = 10;
+      else deduction = 5;
+
+      safetyScore -= Math.round(deduction * multiplier);
     });
     if (safetyScore < 0) safetyScore = 0;
 

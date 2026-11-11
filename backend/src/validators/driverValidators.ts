@@ -93,9 +93,24 @@ export const UpdateDriverIncidentSchema = z.object({
   description: z.string().min(5).max(2000).trim().optional(),
   evidenceReference: z.string().max(500).optional(),
   status: z.enum(['OPEN', 'UNDER_REVIEW', 'RESOLVED', 'CLOSED']).optional(),
+  responsibilityStatus: z
+    .enum(['UNDETERMINED', 'DRIVER_RESPONSIBLE', 'DRIVER_NOT_RESPONSIBLE', 'SHARED_RESPONSIBILITY'])
+    .optional(),
+  reviewNotes: z.string().max(1000).optional(),
   resolutionNotes: z.string().max(1000).optional(),
 });
 
 export const ResolveDriverIncidentSchema = z.object({
+  responsibilityStatus: z.enum([
+    'UNDETERMINED',
+    'DRIVER_RESPONSIBLE',
+    'DRIVER_NOT_RESPONSIBLE',
+    'SHARED_RESPONSIBILITY',
+  ]),
   resolutionNotes: z.string().min(5).max(1000).trim(),
+});
+
+export const UpdateAttendanceSettingsSchema = z.object({
+  lateStartGracePeriodMinutes: z.number().int().min(0).max(120),
+  timezone: z.string().max(50).optional(),
 });

@@ -10,6 +10,11 @@ export type DriverIncidentCategory =
 
 export type DriverIncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type DriverIncidentStatus = 'OPEN' | 'UNDER_REVIEW' | 'RESOLVED' | 'CLOSED';
+export type IncidentResponsibilityStatus =
+  | 'UNDETERMINED'
+  | 'DRIVER_RESPONSIBLE'
+  | 'DRIVER_NOT_RESPONSIBLE'
+  | 'SHARED_RESPONSIBILITY';
 
 export interface IDriverIncident extends Document {
   organizationId: Types.ObjectId;
@@ -24,9 +29,12 @@ export interface IDriverIncident extends Document {
   description: string;
   evidenceReference?: string;
   status: DriverIncidentStatus;
+  responsibilityStatus: IncidentResponsibilityStatus;
   resolutionNotes?: string;
   resolvedAt?: Date;
   reviewedBy?: Types.ObjectId;
+  reviewedAt?: Date;
+  reviewNotes?: string;
   reportedBy: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -97,6 +105,12 @@ const DriverIncidentSchema = new Schema<IDriverIncident>(
       default: 'OPEN',
       index: true,
     },
+    responsibilityStatus: {
+      type: String,
+      enum: ['UNDETERMINED', 'DRIVER_RESPONSIBLE', 'DRIVER_NOT_RESPONSIBLE', 'SHARED_RESPONSIBILITY'],
+      default: 'UNDETERMINED',
+      index: true,
+    },
     resolutionNotes: {
       type: String,
       trim: true,
@@ -107,6 +121,13 @@ const DriverIncidentSchema = new Schema<IDriverIncident>(
     reviewedBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',
+    },
+    reviewedAt: {
+      type: Date,
+    },
+    reviewNotes: {
+      type: String,
+      trim: true,
     },
     reportedBy: {
       type: Schema.Types.ObjectId,
@@ -122,6 +143,7 @@ const DriverIncidentSchema = new Schema<IDriverIncident>(
 // Compound tenant isolation indexes
 DriverIncidentSchema.index({ organizationId: 1, incidentNumber: 1 }, { unique: true });
 DriverIncidentSchema.index({ organizationId: 1, driverId: 1, status: 1 });
+DriverIncidentSchema.index({ organizationId: 1, driverId: 1, responsibilityStatus: 1 });
 DriverIncidentSchema.index({ organizationId: 1, severity: 1, status: 1 });
 
 export const DriverIncident = model<IDriverIncident>('DriverIncident', DriverIncidentSchema);

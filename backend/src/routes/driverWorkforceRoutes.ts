@@ -223,4 +223,23 @@ router.post(
   DriverWorkforceController.resolveIncident
 );
 
+// ============================================================================
+// ATTENDANCE & SHIFT SETTINGS (Phase 09.1)
+// ============================================================================
+router.get(
+  '/attendance/settings',
+  authenticate,
+  requireTenantMembership,
+  requirePermission('driver.shift.read'),
+  DriverWorkforceController.getAttendanceSettings
+);
+
+router.patch(
+  '/attendance/settings',
+  authenticate,
+  requireTenantMembership,
+  requirePermission('driver.shift.manage'),
+  DriverWorkforceController.updateAttendanceSettings
+);
+
 export default router;

@@ -7,6 +7,7 @@ import {
   DriverIncident,
   Assignment,
   Vehicle,
+  Organization,
   AuditLog,
 } from '../models';
 import { AuthRequest } from '../middleware/auth';
@@ -21,6 +22,7 @@ import {
   CreateDriverIncidentSchema,
   UpdateDriverIncidentSchema,
   ResolveDriverIncidentSchema,
+  UpdateAttendanceSettingsSchema,
 } from '../validators/driverValidators';
 import { DriverPerformanceEngine } from '../services/DriverPerformanceEngine';
 import { DriverAlertService } from '../services/DriverAlertService';
@@ -456,37 +458,48 @@ export class DriverWorkforceController {
         return res.status(409).json({ success: false, error: { message: 'Driver already has an active assignment.' } });
       }
 
-      const assignment = await Assignment.create({
-        organizationId: req.tenant.organizationId,
-        vehicleId: vehicle._id,
-        driverId: driver._id,
-        assignedBy: req.tenant.userId as any,
-        assignedAt: new Date(),
-        status: 'ACTIVE',
-        startOdometerKm: vehicle.odometerKm || 0,
-        notes,
-      });
+      try {
+        const assignment = await Assignment.create({
+          organizationId: req.tenant.organizationId,
+          vehicleId: vehicle._id,
+          driverId: driver._id,
+          assignedBy: req.tenant.userId as any,
+          assignedAt: new Date(),
+          status: 'ACTIVE',
+          startOdometerKm: vehicle.odometerKm || 0,
+          notes,
+        });
 
-      vehicle.status = 'ASSIGNED';
-      vehicle.currentDriverId = driver._id;
-      await vehicle.save();
+        vehicle.status = 'ASSIGNED';
+        vehicle.currentDriverId = driver._id;
+        await vehicle.save();
 
-      driver.status = 'ASSIGNED';
-      driver.assignedVehicleId = vehicle._id;
-      await driver.save();
+        driver.status = 'ASSIGNED';
+        driver.assignedVehicleId = vehicle._id;
+        await driver.save();
 
-      await AuditLog.create({
-        organizationId: req.tenant.organizationId,
-        actorId: req.tenant.userId,
-        actorEmail: req.user?.email || 'operator',
-        action: 'VEHICLE_ASSIGNED',
-        entity: 'ASSIGNMENT',
-        entityId: assignment._id.toString(),
-        details: { vehiclePlate: vehicle.plateNumber, driverName: driver.fullName },
-        ipAddress: req.ip,
-      });
+        await AuditLog.create({
+          organizationId: req.tenant.organizationId,
+          actorId: req.tenant.userId,
+          actorEmail: req.user?.email || 'operator',
+          action: 'VEHICLE_ASSIGNED',
+          entity: 'ASSIGNMENT',
+          entityId: assignment._id.toString(),
+          details: { vehiclePlate: vehicle.plateNumber, driverName: driver.fullName },
+          ipAddress: req.ip,
+        });
 
-      return res.status(201).json({ success: true, data: assignment });
+        return res.status(201).json({ success: true, data: assignment });
+      } catch (dbErr: any) {
+        // Handle MongoDB E11000 duplicate key error from partial unique index
+        if (dbErr.code === 11000) {
+          return res.status(409).json({
+            success: false,
+            error: { message: 'Concurrent assignment conflict: An active assignment already exists for this vehicle or driver.' },
+          });
+        }
+        throw dbErr;
+      }
     } catch (error: any) {
       return res.status(500).json({ success: false, error: { message: error.message } });
     }
@@ -627,11 +640,15 @@ export class DriverWorkforceController {
         });
       }
 
+      // Phase 09.1: Fetch configurable attendance grace period from Organization settings (default 15)
+      const org = await Organization.findById(req.tenant.organizationId);
+      const gracePeriodMinutes = org?.settings?.attendanceSettings?.lateStartGracePeriodMinutes ?? 15;
+
       const now = new Date();
       const plannedStart = new Date(shift.plannedStart);
       const lateDiffMinutes = Math.round((now.getTime() - plannedStart.getTime()) / (1000 * 60));
 
-      const isLateStart = lateDiffMinutes > 15; // 15 min grace period
+      const isLateStart = lateDiffMinutes > gracePeriodMinutes;
       const lateStartMinutes = isLateStart ? lateDiffMinutes : 0;
 
       shift.status = 'IN_PROGRESS';
@@ -826,9 +843,11 @@ export class DriverWorkforceController {
       }
 
       incident.status = 'RESOLVED';
+      incident.responsibilityStatus = parsed.data.responsibilityStatus;
       incident.resolutionNotes = parsed.data.resolutionNotes;
       incident.resolvedAt = new Date();
       incident.reviewedBy = req.tenant.userId as any;
+      incident.reviewedAt = new Date();
       await incident.save();
 
       await AuditLog.create({
@@ -838,7 +857,10 @@ export class DriverWorkforceController {
         action: 'SAFETY_INCIDENT_RESOLVED',
         entity: 'INCIDENT',
         entityId: incident._id.toString(),
-        details: { incidentNumber: incident.incidentNumber },
+        details: {
+          incidentNumber: incident.incidentNumber,
+          responsibilityStatus: incident.responsibilityStatus,
+        },
         ipAddress: req.ip,
       });
 
@@ -915,6 +937,77 @@ export class DriverWorkforceController {
       );
 
       return res.status(200).json({ success: true, data: rankings });
+    } catch (error: any) {
+      return res.status(500).json({ success: false, error: { message: error.message } });
+    }
+  }
+
+  // ==========================================================================
+  // 7. ATTENDANCE & SHIFT CONFIGURATION (Phase 09.1)
+  // ==========================================================================
+
+  static async getAttendanceSettings(req: AuthRequest, res: Response) {
+    try {
+      if (!req.tenant) return res.status(401).json({ success: false });
+
+      const org = await Organization.findById(req.tenant.organizationId);
+      if (!org) {
+        return res.status(404).json({ success: false, error: { message: 'Organization not found.' } });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          lateStartGracePeriodMinutes: org.settings?.attendanceSettings?.lateStartGracePeriodMinutes ?? 15,
+          timezone: org.settings?.attendanceSettings?.timezone ?? 'UTC',
+        },
+      });
+    } catch (error: any) {
+      return res.status(500).json({ success: false, error: { message: error.message } });
+    }
+  }
+
+  static async updateAttendanceSettings(req: AuthRequest, res: Response) {
+    try {
+      if (!req.tenant) return res.status(401).json({ success: false });
+
+      const parsed = UpdateAttendanceSettingsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, error: parsed.error.format() });
+      }
+
+      const org = await Organization.findById(req.tenant.organizationId);
+      if (!org) {
+        return res.status(404).json({ success: false, error: { message: 'Organization not found.' } });
+      }
+
+      if (!org.settings) {
+        org.settings = {
+          telemetryIntervalSeconds: 5,
+          allowSimulatedGps: true,
+          currency: 'USD',
+        };
+      }
+
+      org.settings.attendanceSettings = {
+        lateStartGracePeriodMinutes: parsed.data.lateStartGracePeriodMinutes,
+        timezone: parsed.data.timezone ?? org.settings.attendanceSettings?.timezone ?? 'UTC',
+      };
+
+      await org.save();
+
+      await AuditLog.create({
+        organizationId: req.tenant.organizationId,
+        actorId: req.tenant.userId,
+        actorEmail: req.user?.email || 'operator',
+        action: 'ORGANIZATION_SETTINGS_UPDATED',
+        entity: 'ORGANIZATION',
+        entityId: org._id.toString(),
+        details: { attendanceSettings: org.settings.attendanceSettings },
+        ipAddress: req.ip,
+      });
+
+      return res.status(200).json({ success: true, data: org.settings.attendanceSettings });
     } catch (error: any) {
       return res.status(500).json({ success: false, error: { message: error.message } });
     }

@@ -7,7 +7,7 @@
 ![Next.js](https://img.shields.io/badge/Next.js-14_App_Router-black?style=for-the-badge&logo=next.js&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-Express_API-339933?style=for-the-badge&logo=node.js&logoColor=white)
 ![MongoDB](https://img.shields.io/badge/MongoDB-Atlas_Multi--Tenant-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-133%2F133_Passed-10B981?style=for-the-badge&logo=jest&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-138%2F138_Passed-10B981?style=for-the-badge&logo=jest&logoColor=white)
 
 **An enterprise-grade, multi-tenant fleet operations, driver compliance, freight orders, and dispatch execution platform.**
 

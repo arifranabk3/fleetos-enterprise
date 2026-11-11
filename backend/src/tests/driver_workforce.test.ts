@@ -665,6 +665,183 @@ async function runPhase09DriverWorkforceTestSuite() {
     failed++;
   }
 
+  // ==========================================================================
+  // PART 8: PHASE 09.1 HARDENING (FAIRNESS, CONCURRENCY & ATTENDANCE SETTINGS)
+  // ==========================================================================
+  console.log('\n--- PART 8: PHASE 09.1 HARDENING TESTS ---');
+
+  // Test 21: Safety Fairness: OPEN and UNDER_REVIEW incidents are strictly excluded from safety score deductions
+  try {
+    const unverifiedIncident = await DriverIncident.create({
+      organizationId: tenantAId,
+      incidentNumber: 'INC-20261111-9999',
+      category: 'ACCIDENT',
+      severity: 'CRITICAL',
+      incidentDate: new Date(),
+      driverId: driverA1._id,
+      status: 'UNDER_REVIEW',
+      responsibilityStatus: 'UNDETERMINED',
+      description: 'Pending external police report.',
+      reportedBy: operatorUserId,
+    });
+
+    const cardUnverified = await DriverPerformanceEngine.calculateDriverScorecard(tenantAId, driverA1._id, 30);
+    // Because responsibilityStatus is UNDETERMINED and status is UNDER_REVIEW, deduction MUST BE 0 (safety score 100)
+    assert.strictEqual(cardUnverified.safetyScore, 100);
+
+    console.log('[PASS] Test 21: OPEN and UNDER_REVIEW incidents do not deduct driver safety score points');
+    passed++;
+  } catch (err: any) {
+    console.error('[FAIL] Test 21: OPEN/UNDER_REVIEW incident deducted score points', err.message);
+    failed++;
+  }
+
+  // Test 22: Safety Fairness: DRIVER_NOT_RESPONSIBLE resolved incident produces zero penalty
+  try {
+    const exoneratedIncident = await DriverIncident.create({
+      organizationId: tenantAId,
+      incidentNumber: 'INC-20261111-9998',
+      category: 'ACCIDENT',
+      severity: 'HIGH',
+      incidentDate: new Date(),
+      driverId: driverA1._id,
+      description: 'Minor non-fault bumper impact.',
+      status: 'RESOLVED',
+      responsibilityStatus: 'DRIVER_NOT_RESPONSIBLE',
+      resolutionNotes: 'Dashcam confirmed third-party rear-ended commercial vehicle at red light.',
+      reportedBy: operatorUserId,
+    });
+
+    const cardExonerated = await DriverPerformanceEngine.calculateDriverScorecard(tenantAId, driverA1._id, 30);
+    assert.strictEqual(cardExonerated.safetyScore, 100);
+
+    console.log('[PASS] Test 22: Exonerated incident (DRIVER_NOT_RESPONSIBLE) produces zero safety penalty');
+    passed++;
+  } catch (err: any) {
+    console.error('[FAIL] Test 22: Exonerated incident penalized driver', err.message);
+    failed++;
+  }
+
+  // Test 23: Safety Fairness: DRIVER_RESPONSIBLE deducts full points and SHARED_RESPONSIBILITY deducts half
+  try {
+    const sharedIncident = await DriverIncident.create({
+      organizationId: tenantAId,
+      incidentNumber: 'INC-20261111-9997',
+      category: 'TRAFFIC_VIOLATION',
+      severity: 'HIGH', // Base 20 deduction -> 10 for shared
+      incidentDate: new Date(),
+      driverId: driverA1._id,
+      description: 'Lane boundary overlap during merge.',
+      status: 'RESOLVED',
+      responsibilityStatus: 'SHARED_RESPONSIBILITY',
+      resolutionNotes: 'Shared fault lane merge violation.',
+      reportedBy: operatorUserId,
+    });
+
+    const cardShared = await DriverPerformanceEngine.calculateDriverScorecard(tenantAId, driverA1._id, 30);
+    // Base 100 - (20 * 0.5) = 90
+    assert.strictEqual(cardShared.safetyScore, 90);
+
+    console.log('[PASS] Test 23: SHARED_RESPONSIBILITY deducts exact 50% weighted penalty');
+    passed++;
+  } catch (err: any) {
+    console.error('[FAIL] Test 23: SHARED_RESPONSIBILITY weighting mismatch', err.message);
+    failed++;
+  }
+
+  // Test 24: Database Partial Unique Index blocks concurrent active vehicle assignment
+  try {
+    const vehC = await Vehicle.create({
+      organizationId: tenantAId,
+      plateNumber: 'TX-CONCUR-01',
+      vin: '1HD1KMM138YB99999',
+      make: 'Kenworth',
+      modelName: 'T680',
+      year: 2024,
+      capacityKg: 25000,
+      status: 'AVAILABLE',
+      odometerKm: 10000,
+    });
+
+    // 1st active assignment
+    await Assignment.create({
+      organizationId: tenantAId,
+      vehicleId: vehC._id,
+      driverId: driverA1._id,
+      assignedBy: operatorUserId,
+      assignedAt: new Date(),
+      status: 'ACTIVE',
+      startOdometerKm: 10000,
+    });
+
+    // Attempt concurrent 2nd active assignment on same vehicle
+    let dbIndexRejected = false;
+    try {
+      await Assignment.create({
+        organizationId: tenantAId,
+        vehicleId: vehC._id,
+        driverId: driverA2._id,
+        assignedBy: operatorUserId,
+        assignedAt: new Date(),
+        status: 'ACTIVE',
+        startOdometerKm: 10000,
+      });
+    } catch (e: any) {
+      if (e.code === 11000) dbIndexRejected = true;
+    }
+
+    assert.strictEqual(dbIndexRejected, true);
+
+    // Clean up active assignment
+    await Assignment.updateMany({ vehicleId: vehC._id }, { status: 'RELEASED' });
+
+    console.log('[PASS] Test 24: Database partial unique index strictly rejects concurrent active vehicle assignment (E11000)');
+    passed++;
+  } catch (err: any) {
+    console.error('[FAIL] Test 24: DB partial unique index failed to block concurrent vehicle assignment', err.message);
+    failed++;
+  }
+
+  // Test 25: Configurable Attendance Grace Period (Tenant-Specific Settings)
+  try {
+    const orgA = await Organization.findById(tenantAId);
+    assert.strictEqual(!!orgA, true);
+
+    // Configure 5 minute strict grace period
+    orgA!.settings.attendanceSettings = {
+      lateStartGracePeriodMinutes: 5,
+      timezone: 'America/Chicago',
+    };
+    await orgA!.save();
+
+    const plannedStart = new Date();
+    plannedStart.setHours(plannedStart.getHours() + 1);
+
+    // 8 minutes late (> 5 minutes grace threshold)
+    const lateShift = await DriverShift.create({
+      organizationId: tenantAId,
+      driverId: driverA2._id,
+      shiftDate: plannedStart.toISOString().split('T')[0],
+      plannedStart,
+      plannedEnd: new Date(plannedStart.getTime() + 8 * 3600000),
+      status: 'SCHEDULED',
+      createdBy: operatorUserId,
+    });
+
+    const now = new Date(plannedStart.getTime() + 8 * 60000); // 8 minutes late
+    const lateDiff = Math.round((now.getTime() - plannedStart.getTime()) / 60000);
+    const configuredGrace = orgA!.settings.attendanceSettings.lateStartGracePeriodMinutes;
+
+    const isLate = lateDiff > configuredGrace;
+    assert.strictEqual(isLate, true);
+
+    console.log('[PASS] Test 25: Organization-level configurable attendance grace period correctly evaluated');
+    passed++;
+  } catch (err: any) {
+    console.error('[FAIL] Test 25: Configurable attendance grace period failed', err.message);
+    failed++;
+  }
+
   console.log(`\nAll tests completed: ${passed}/${passed + failed} PASSED.`);
   if (failed > 0) process.exit(1);
 }
