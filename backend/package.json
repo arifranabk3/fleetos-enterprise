@@ -8,7 +8,7 @@
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "type-check": "tsc --noEmit",
-    "test": "node dist/tests/test_runner.js"
+    "test": "ts-node src/tests/run_all_tests.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

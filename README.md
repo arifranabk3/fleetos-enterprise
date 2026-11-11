@@ -7,7 +7,7 @@
 ![Next.js](https://img.shields.io/badge/Next.js-14_App_Router-black?style=for-the-badge&logo=next.js&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-Express_API-339933?style=for-the-badge&logo=node.js&logoColor=white)
 ![MongoDB](https://img.shields.io/badge/MongoDB-Atlas_Multi--Tenant-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-82%2F82_Passed-10B981?style=for-the-badge&logo=jest&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-89%2F89_Passed-10B981?style=for-the-badge&logo=jest&logoColor=white)
 
 **An enterprise-grade, multi-tenant fleet operations, driver compliance, freight orders, and dispatch execution platform.**
 
@@ -126,7 +126,7 @@ const shipments = await shipmentRepo.find(req.tenant, { status: 'IN_TRANSIT' });
 
 ## 🧪 Automated Test Suites
 
-FleetOS includes **82 comprehensive automated tests** run against an in-memory MongoDB server:
+FleetOS includes **89 comprehensive automated tests** run against an in-memory MongoDB server via the unified test runner (`npm test`):
 
 | Test Suite | Focus Area | Result |
 | :--- | :--- | :--- |
@@ -135,8 +135,8 @@ FleetOS includes **82 comprehensive automated tests** run against an in-memory M
 | **Phase 04 Suite** | Vehicle Specs, CDL Validation, Document Vault & Assignment Locks | **11 / 11 Passed** |
 | **Phase 05 Suite** | Customer Integration, Tracking Codes, State Machine & Dispatch Conflicts | **17 / 17 Passed** |
 | **Phase 06 Suite** | Real-Time Telemetry Ingestion, Spatial Indexing, Speeding & Geofence Alerts | **17 / 17 Passed** |
-| **Phase 07 Suite** | Preventive Scheduling, Vendor Management, State Machine & Document Compliance | **17 / 17 Passed** |
-| **Total** | **End-to-End Enterprise Verification** | **82 / 82 Passed (100%)** |
+| **Phase 07 Suite** | Preventive Scheduling, Vendor Management, State Machine & Document Compliance | **24 / 24 Passed** |
+| **Total** | **End-to-End Enterprise Verification (`npm test`)** | **89 / 89 Passed (100%)** |
 
 ---
 

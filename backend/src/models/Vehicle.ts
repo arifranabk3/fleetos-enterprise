@@ -41,6 +41,8 @@ export interface IVehicle extends Document {
   inspectionExpiry?: Date;
   purchaseDate?: Date;
   documents: IVehicleDocument[];
+  preMaintenanceStatus?: VehicleStatus;
+  activeMaintenanceRecordCount?: number;
   notes?: string;
   isArchived: boolean;
   createdAt: Date;
@@ -135,6 +137,15 @@ const VehicleSchema = new Schema<IVehicle>(
     inspectionExpiry: { type: Date },
     purchaseDate: { type: Date },
     documents: [VehicleDocumentSchema],
+    preMaintenanceStatus: {
+      type: String,
+      enum: ['AVAILABLE', 'ASSIGNED', 'IN_TRANSIT', 'MAINTENANCE', 'OUT_OF_SERVICE', 'RETIRED'],
+    },
+    activeMaintenanceRecordCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     notes: { type: String },
     isArchived: { type: Boolean, default: false, index: true },
   },

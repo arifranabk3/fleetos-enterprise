@@ -8,6 +8,7 @@ import { BaseTenantRepository } from '../repositories/BaseTenantRepository';
 import { AuthRequest } from '../middleware/auth';
 import { MaintenanceStateMachine } from '../services/MaintenanceStateMachine';
 import { PreventiveMaintenanceEngine } from '../services/PreventativeMaintenanceEngine';
+import { MaintenanceLockService } from '../services/MaintenanceLockService';
 
 const maintenanceRepo = new BaseTenantRepository(MaintenanceRecord);
 const scheduleRepo = new BaseTenantRepository(MaintenanceSchedule);
@@ -255,8 +256,8 @@ export class MaintenanceController {
       });
       await record.save();
 
-      // Lock vehicle to MAINTENANCE status to prevent dispatch conflicts
-      await Vehicle.findByIdAndUpdate(record.vehicleId, { status: 'MAINTENANCE' });
+      // Acquire maintenance lock on vehicle (preserves pre-maintenance operational status and handles concurrency)
+      await MaintenanceLockService.acquireLock(record.vehicleId, record._id);
 
       res.json({
         success: true,
@@ -320,11 +321,12 @@ export class MaintenanceController {
       });
       await record.save();
 
-      // Update vehicle odometer and release vehicle status back to AVAILABLE
-      await Vehicle.findByIdAndUpdate(record.vehicleId, {
-        status: 'AVAILABLE',
-        odometerKm: completedOdometer,
-      });
+      // Release maintenance lock safely restoring previous operational status
+      const lockRelease = await MaintenanceLockService.releaseLock(
+        record.vehicleId,
+        record._id,
+        completedOdometer
+      );
 
       // If linked to a preventive schedule, recalculate next due date & odometer
       if (record.scheduleId) {
@@ -337,7 +339,7 @@ export class MaintenanceController {
 
       res.json({
         success: true,
-        message: 'Maintenance completed successfully. Asset released to AVAILABLE.',
+        message: `Maintenance completed successfully. Asset status: ${lockRelease.finalStatus}.`,
         data: record,
       });
     } catch (error: any) {
@@ -386,12 +388,12 @@ export class MaintenanceController {
       });
       await record.save();
 
-      // Release vehicle back to AVAILABLE
-      await Vehicle.findByIdAndUpdate(record.vehicleId, { status: 'AVAILABLE' });
+      // Release maintenance lock safely restoring previous operational status
+      const lockRelease = await MaintenanceLockService.releaseLock(record.vehicleId, record._id);
 
       res.json({
         success: true,
-        message: 'Maintenance cancelled. Vehicle released.',
+        message: `Maintenance cancelled. Vehicle status: ${lockRelease.finalStatus}.`,
         data: record,
       });
     } catch (error: any) {

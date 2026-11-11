@@ -16,6 +16,7 @@ import { BaseTenantRepository } from '../repositories/BaseTenantRepository';
 import { MaintenanceStateMachine } from '../services/MaintenanceStateMachine';
 import { PreventiveMaintenanceEngine } from '../services/PreventativeMaintenanceEngine';
 import { ComplianceEngine } from '../services/ComplianceEngine';
+import { MaintenanceLockService } from '../services/MaintenanceLockService';
 
 let mongod: MongoMemoryServer;
 
@@ -110,6 +111,7 @@ async function runPhase07MaintenanceTestSuite() {
     const scheduleRepo = new BaseTenantRepository(MaintenanceSchedule);
     const vendorRepo = new BaseTenantRepository(MaintenanceVendor);
     const documentRepo = new BaseTenantRepository(VehicleComplianceDocument);
+    const vehicleRepo = new BaseTenantRepository(Vehicle);
 
     // -------------------------------------------------------------
     // PART 1: MAINTENANCE VENDORS & TENANT ISOLATION
@@ -295,6 +297,191 @@ async function runPhase07MaintenanceTestSuite() {
     // Test 17: Cross-tenant document isolation
     const crossDocLookup = await documentRepo.findById(tenantB, doc1._id);
     assert(crossDocLookup === null, 'Test 17: Enforce strict cross-tenant isolation on compliance documents');
+
+    // -------------------------------------------------------------
+    // PART 5: VEHICLE STATUS SAFETY & MAINTENANCE LOCK SUITE
+    // -------------------------------------------------------------
+    console.log('\n--- PART 5: VEHICLE STATUS SAFETY & CONCURRENT LOCKS ---');
+
+    // Test 18: AVAILABLE vehicle starts maintenance and completes it -> restored to AVAILABLE
+    const vehAvail = await vehicleRepo.create(tenantA, {
+      vin: '1M8GDM9A_SAFE_AVAIL',
+      plateNumber: 'SAFE-001',
+      make: 'Kenworth',
+      modelName: 'T680',
+      year: 2024,
+      type: 'SEMI_TRUCK',
+      capacityKg: 36000,
+      status: 'AVAILABLE',
+      odometerKm: 50000,
+    } as any);
+
+    const recAvail = await maintenanceRepo.create(tenantA, {
+      vehicleId: vehAvail._id,
+      maintenanceType: 'OIL_CHANGE',
+      title: 'Oil Change',
+      description: 'Regular service',
+      scheduledDate: new Date(),
+      odometerReadingKm: 50000,
+      status: 'IN_PROGRESS',
+      createdBy: userA._id,
+    } as any);
+
+    await MaintenanceLockService.acquireLock(vehAvail._id, recAvail._id);
+    const lockedAvailVeh = await Vehicle.findById(vehAvail._id);
+    assert(lockedAvailVeh?.status === 'MAINTENANCE', 'Test 18a: AVAILABLE vehicle correctly locks to MAINTENANCE');
+
+    const releaseAvail = await MaintenanceLockService.releaseLock(vehAvail._id, recAvail._id, 50100);
+    const unlockedAvailVeh = await Vehicle.findById(vehAvail._id);
+    assert(
+      releaseAvail.finalStatus === 'AVAILABLE' && unlockedAvailVeh?.status === 'AVAILABLE',
+      'Test 18: AVAILABLE vehicle starts maintenance and restores to AVAILABLE upon completion'
+    );
+
+    // Test 19: OUT_OF_SERVICE vehicle starts maintenance and completes it -> safely remains OUT_OF_SERVICE
+    const vehOOS = await vehicleRepo.create(tenantA, {
+      vin: '1M8GDM9A_SAFE_OOS',
+      plateNumber: 'SAFE-002',
+      make: 'Freightliner',
+      modelName: 'Cascadia',
+      year: 2023,
+      type: 'SEMI_TRUCK',
+      capacityKg: 36000,
+      status: 'OUT_OF_SERVICE',
+      odometerKm: 60000,
+    } as any);
+
+    const recOOS = await maintenanceRepo.create(tenantA, {
+      vehicleId: vehOOS._id,
+      maintenanceType: 'ENGINE_REPAIR',
+      title: 'Engine Check',
+      description: 'Inspecting engine issues',
+      scheduledDate: new Date(),
+      odometerReadingKm: 60000,
+      status: 'IN_PROGRESS',
+      createdBy: userA._id,
+    } as any);
+
+    await MaintenanceLockService.acquireLock(vehOOS._id, recOOS._id);
+    const releaseOOS = await MaintenanceLockService.releaseLock(vehOOS._id, recOOS._id, 60050);
+    const finalOOSVeh = await Vehicle.findById(vehOOS._id);
+    assert(
+      releaseOOS.finalStatus === 'OUT_OF_SERVICE' && finalOOSVeh?.status === 'OUT_OF_SERVICE',
+      'Test 19: OUT_OF_SERVICE vehicle completing maintenance preserves OUT_OF_SERVICE status (never erroneously AVAILABLE)'
+    );
+
+    // Test 20: RETIRED vehicle cannot become AVAILABLE upon maintenance completion/cancellation
+    const vehRetired = await vehicleRepo.create(tenantA, {
+      vin: '1M8GDM9A_SAFE_RET',
+      plateNumber: 'SAFE-003',
+      make: 'Mack',
+      modelName: 'Anthem',
+      year: 2018,
+      type: 'SEMI_TRUCK',
+      capacityKg: 36000,
+      status: 'RETIRED',
+      odometerKm: 450000,
+    } as any);
+
+    const recRetired = await maintenanceRepo.create(tenantA, {
+      vehicleId: vehRetired._id,
+      maintenanceType: 'ROUTINE_INSPECTION',
+      title: 'Decommissioning Inspection',
+      description: 'Final audit',
+      scheduledDate: new Date(),
+      odometerReadingKm: 450000,
+      status: 'IN_PROGRESS',
+      createdBy: userA._id,
+    } as any);
+
+    await MaintenanceLockService.acquireLock(vehRetired._id, recRetired._id);
+    const releaseRetired = await MaintenanceLockService.releaseLock(vehRetired._id, recRetired._id);
+    const finalRetiredVeh = await Vehicle.findById(vehRetired._id);
+    assert(
+      releaseRetired.finalStatus === 'RETIRED' && finalRetiredVeh?.status === 'RETIRED',
+      'Test 20: RETIRED vehicle remains RETIRED after maintenance completion'
+    );
+
+    // Test 21: Concurrent maintenance - completing one of two active records keeps vehicle in MAINTENANCE
+    const vehMulti = await vehicleRepo.create(tenantA, {
+      vin: '1M8GDM9A_SAFE_MULTI',
+      plateNumber: 'SAFE-004',
+      make: 'Volvo',
+      modelName: 'VNL',
+      year: 2024,
+      type: 'SEMI_TRUCK',
+      capacityKg: 36000,
+      status: 'AVAILABLE',
+      odometerKm: 70000,
+    } as any);
+
+    const recMulti1 = await maintenanceRepo.create(tenantA, {
+      vehicleId: vehMulti._id,
+      maintenanceType: 'BRAKE_SERVICE',
+      title: 'Air Brakes Overhaul',
+      description: 'Full brake overhaul',
+      scheduledDate: new Date(),
+      odometerReadingKm: 70000,
+      status: 'IN_PROGRESS',
+      createdBy: userA._id,
+    } as any);
+
+    const recMulti2 = await maintenanceRepo.create(tenantA, {
+      vehicleId: vehMulti._id,
+      maintenanceType: 'TIRE_ROTATION',
+      title: 'Drive Tires Replacement',
+      description: 'Replace tires',
+      scheduledDate: new Date(),
+      odometerReadingKm: 70000,
+      status: 'IN_PROGRESS',
+      createdBy: userA._id,
+    } as any);
+
+    // Both orders acquire lock
+    await MaintenanceLockService.acquireLock(vehMulti._id, recMulti1._id);
+    await MaintenanceLockService.acquireLock(vehMulti._id, recMulti2._id);
+
+    // First order finishes -> vehicle must STAY in MAINTENANCE because recMulti2 is still active
+    recMulti1.status = 'COMPLETED';
+    await recMulti1.save();
+    const releaseMulti1 = await MaintenanceLockService.releaseLock(vehMulti._id, recMulti1._id);
+    const intermediateVeh = await Vehicle.findById(vehMulti._id);
+    assert(
+      releaseMulti1.finalStatus === 'MAINTENANCE' && intermediateVeh?.status === 'MAINTENANCE',
+      'Test 21: Completing one of two concurrent maintenance records keeps vehicle in MAINTENANCE'
+    );
+
+    // Second order finishes -> now vehicle can safely release to AVAILABLE
+    recMulti2.status = 'COMPLETED';
+    await recMulti2.save();
+    const releaseMulti2 = await MaintenanceLockService.releaseLock(vehMulti._id, recMulti2._id);
+    const finalMultiVeh = await Vehicle.findById(vehMulti._id);
+    assert(
+      releaseMulti2.finalStatus === 'AVAILABLE' && finalMultiVeh?.status === 'AVAILABLE',
+      'Test 22: Completing final concurrent maintenance record safely releases vehicle to AVAILABLE'
+    );
+
+    // Test 23: Cancelling service with valid reason restores previous status
+    const recMulti3 = await maintenanceRepo.create(tenantA, {
+      vehicleId: vehMulti._id,
+      maintenanceType: 'ROUTINE_INSPECTION',
+      title: 'Monthly Inspection',
+      description: 'Routine check',
+      scheduledDate: new Date(),
+      odometerReadingKm: 70100,
+      status: 'IN_PROGRESS',
+      createdBy: userA._id,
+    } as any);
+
+    await MaintenanceLockService.acquireLock(vehMulti._id, recMulti3._id);
+    recMulti3.status = 'CANCELLED';
+    await recMulti3.save();
+    const cancelRelease = await MaintenanceLockService.releaseLock(vehMulti._id, recMulti3._id);
+    const afterCancelVeh = await Vehicle.findById(vehMulti._id);
+    assert(
+      cancelRelease.finalStatus === 'AVAILABLE' && afterCancelVeh?.status === 'AVAILABLE',
+      'Test 23: Maintenance cancellation safely restores vehicle operational status'
+    );
 
     console.log(`\nAll tests completed: ${passedTests}/${totalTests} PASSED.\n`);
   } finally {

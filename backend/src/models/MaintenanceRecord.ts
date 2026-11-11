@@ -28,6 +28,7 @@ export interface IMaintenanceRecord extends Document {
   currency: string;
   status: MaintenanceStatus;
   priority: MaintenancePriority;
+  initialVehicleStatus?: string; // Captured operational status prior to maintenance lock
   notes?: string;
   cancellationReason?: string;
   createdBy: Types.ObjectId;
@@ -101,6 +102,10 @@ const MaintenanceRecordSchema = new Schema<IMaintenanceRecord>(
       enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'],
       default: 'MEDIUM',
       index: true,
+    },
+    initialVehicleStatus: {
+      type: String,
+      enum: ['AVAILABLE', 'ASSIGNED', 'IN_TRANSIT', 'MAINTENANCE', 'OUT_OF_SERVICE', 'RETIRED'],
     },
     notes: { type: String },
     cancellationReason: { type: String },
