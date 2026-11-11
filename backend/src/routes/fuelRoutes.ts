@@ -88,4 +88,19 @@ router.post(
   FuelController.resolveAnomaly
 );
 
+/* ==========================================================================
+   CSV IMPORT & EXPORT
+   ========================================================================== */
+router.post(
+  '/fuel/import-csv',
+  requirePermission('FUEL:CREATE'),
+  FuelController.importCSV
+);
+
+router.get(
+  '/fuel/export-csv',
+  requirePermission('FUEL:READ'),
+  FuelController.exportCSV
+);
+
 export default router;

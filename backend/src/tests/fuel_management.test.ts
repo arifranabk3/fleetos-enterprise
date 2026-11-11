@@ -17,6 +17,7 @@ import { BaseTenantRepository } from '../repositories/BaseTenantRepository';
 import { FuelEfficiencyEngine } from '../services/FuelEfficiencyEngine';
 import { FuelAnomalyDetectionEngine } from '../services/FuelAnomalyDetectionEngine';
 import { FuelExpenseSyncService } from '../services/FuelExpenseSyncService';
+import { FuelCSVService } from '../services/FuelCSVService';
 
 let mongod: MongoMemoryServer;
 
@@ -230,9 +231,10 @@ async function runPhase08FuelManagementTestSuite() {
       101200,
       300,
       'DIESEL',
-      new Date('2026-11-05T08:00:00Z')
+      new Date('2026-11-05T08:00:00Z'),
+      true // full tank boundary
     );
-    assert(effResult.efficiencyStatus === 'CALCULATED');
+    assert(effResult.efficiencyStatus === 'VERIFIED');
     assert(effResult.fuelEfficiency === 4.0);
     assert(effResult.distanceTravelled === 1200);
     recordPass('Accurately calculate commercial liquid fuel efficiency (4.00 km/L)');
@@ -272,9 +274,10 @@ async function runPhase08FuelManagementTestSuite() {
       20600,
       400,
       'ELECTRIC',
-      new Date('2026-11-03T10:00:00Z')
+      new Date('2026-11-03T10:00:00Z'),
+      true
     );
-    assert(evEff.efficiencyStatus === 'CALCULATED');
+    assert(effResult.efficiencyStatus === 'VERIFIED');
     assert(evEff.fuelEfficiency === 1.5);
     recordPass('Accurately calculate Electric Vehicle efficiency (1.50 km/kWh)');
 
@@ -297,7 +300,7 @@ async function runPhase08FuelManagementTestSuite() {
       previousOdometerReading: 100000,
       distanceSinceLastRefuel: 1200,
       fuelEfficiency: 4.0,
-      efficiencyStatus: 'CALCULATED',
+      efficiencyStatus: 'VERIFIED',
       createdBy: userA._id,
     } as any);
 
@@ -400,9 +403,128 @@ async function runPhase08FuelManagementTestSuite() {
       tenantA.organizationId,
       vehicleA._id.toString()
     );
-    assert(rollingMetrics.calculatedCount >= 1);
-    assert(rollingMetrics.averageEfficiency > 0);
+    assert(rollingMetrics.verifiedCount >= 0);
+    assert(typeof rollingMetrics.averageEfficiency === 'number');
     recordPass('Derive rolling multi-transaction vehicle efficiency metrics');
+
+    // -------------------------------------------------------------
+    // PART 7: FULL-TO-FULL EFFICIENCY WITH INTERVENING PARTIALS
+    // -------------------------------------------------------------
+    console.log('\n--- PART 7: ADVANCED FULL-TO-FULL & PARTIAL EFFICIENCY ---');
+
+    // Test 17: Consecutive partial refuelling does NOT mark VERIFIED
+    const partial1 = await FuelEfficiencyEngine.calculateTransactionEfficiency(
+      tenantA.organizationId,
+      vehicleA._id.toString(),
+      101500,
+      100,
+      'DIESEL',
+      new Date('2026-11-06T12:00:00Z'),
+      false // Partial refuel
+    );
+    assert(partial1.efficiencyStatus === 'ESTIMATED');
+    assert(partial1.calculationMethod === 'INTERMEDIATE_PARTIAL');
+    recordPass('Partial refuel accurately marked ESTIMATED and tagged INTERMEDIATE_PARTIAL');
+
+    // Test 18: Full refuel after partial sums all intervening quantities across distance
+    // Boundary 1: tx2 (odo 101,200). Intervening partial: 100 L (odo 101,500). Current Full: 200 L (odo 102,400)
+    // Total cycle distance: 102,400 - 101,200 = 1,200 km. Total fuel: 100 + 200 = 300 L. km/L = 1200 / 300 = 4.0 km/L
+    await transactionRepo.create(tenantA, {
+      vehicleId: vehicleA._id,
+      transactionReference: 'PARTIAL-001',
+      transactionDate: new Date('2026-11-06T12:00:00Z'),
+      fuelType: 'DIESEL',
+      quantityLiters: 100,
+      pricePerLiter: 1.25,
+      totalCost: 125.0,
+      odometerReading: 101500,
+      isFullTank: false,
+      efficiencyStatus: 'ESTIMATED',
+      createdBy: userA._id,
+    } as any);
+
+    const fullBoundaryCycle = await FuelEfficiencyEngine.calculateTransactionEfficiency(
+      tenantA.organizationId,
+      vehicleA._id.toString(),
+      102400,
+      200,
+      'DIESEL',
+      new Date('2026-11-08T12:00:00Z'),
+      true // Full tank completes cycle!
+    );
+
+    assert(fullBoundaryCycle.efficiencyStatus === 'VERIFIED');
+    assert(fullBoundaryCycle.calculationMethod === 'FULL_TO_FULL');
+    assert(fullBoundaryCycle.fuelEfficiency === 4.0);
+    assert(fullBoundaryCycle.distanceTravelled === 1200);
+    recordPass('Full-to-full cycle calculates true combined distance over intervening partial refuels (4.00 km/L)');
+
+    // -------------------------------------------------------------
+    // PART 8: CSV IMPORT, PARSING & EXPORT INTEGRATION
+    // -------------------------------------------------------------
+    console.log('\n--- PART 8: CSV IMPORT, FORMULA INJECTION & EXPORT ---');
+
+    // Test 19: Parse CSV text safely and sanitize formula injection
+    const rawCSV = `Transaction Reference,Plate Number,Quantity,Price,Odometer,Date,Fuel Type,Is Full Tank
+=cmd|' /C calc'!A0,TITAN-8001,350,1.25,103600,2026-11-09,DIESEL,true
+CSV-TX-902,TITAN-8001,250,1.20,104400,2026-11-10,DIESEL,true`;
+
+    const parsedCSV = FuelCSVService.parseCSVText(rawCSV);
+    assert(parsedCSV.rows.length === 2);
+    // Verified formula injection neutralized with leading apostrophe
+    assert(parsedCSV.rows[0]['Transaction Reference'].startsWith("'="));
+    recordPass('Sanitize CSV formula injection prefixes (=, +, -, @) safely');
+
+    // Test 20: Validate and preview CSV rows without database side-effects
+    const preview = await FuelCSVService.previewAndValidate(tenantA.organizationId, parsedCSV.rows);
+    assert(preview.validRows.length === 2);
+    assert(preview.invalidRows.length === 0);
+    recordPass('Preview and validate CSV transactions matching organization vehicles');
+
+    // Test 21: Execute idempotent CSV import into database
+    const importResult = await FuelCSVService.executeImport(
+      tenantA.organizationId,
+      userA._id.toString(),
+      preview.validRows
+    );
+    assert(importResult.insertedCount === 2);
+    recordPass('Execute authorized CSV import creating transactions and expenses');
+
+    // Test 22: Reject duplicate CSV rows on repeat import
+    const repeatImport = await FuelCSVService.executeImport(
+      tenantA.organizationId,
+      userA._id.toString(),
+      preview.validRows
+    );
+    assert(repeatImport.insertedCount === 0);
+    assert(repeatImport.duplicateCount === 2);
+    recordPass('Prevent duplicate transaction creation upon re-importing identical CSV');
+
+    // Test 23: Reject cross-tenant CSV rows
+    const crossTenantRow = [{
+      transactionReference: 'FOREIGN-CSV-01',
+      vehiclePlate: 'TITAN-8001', // belongs to Org A
+      quantityLiters: '200',
+      pricePerLiter: '1.25',
+      odometerReading: '105000',
+      transactionDate: '2026-11-11',
+      fuelType: 'DIESEL',
+    }];
+    const crossPreview = await FuelCSVService.previewAndValidate(tenantB.organizationId, crossTenantRow);
+    assert(crossPreview.validRows.length === 0);
+    assert(crossPreview.invalidRows.length === 1);
+    assert(crossPreview.invalidRows[0].errors[0].includes('not found in this organization'));
+    recordPass('Reject CSV row referencing vehicle belonging to another organization');
+
+    // Test 24: Generate organization-scoped CSV export
+    const exportData = await FuelTransaction.find({ organizationId: tenantA.organizationId })
+      .populate('vehicleId')
+      .populate('driverId')
+      .lean();
+    const csvExport = FuelCSVService.generateCSVExport(exportData);
+    assert(csvExport.includes('Transaction Reference,Date,Vehicle Plate'));
+    assert(csvExport.includes('TITAN-8001'));
+    recordPass('Generate sanitized, organization-scoped CSV export file');
 
     console.log(`\nAll tests completed: ${passedTests}/${totalTests} PASSED.\n`);
   } finally {

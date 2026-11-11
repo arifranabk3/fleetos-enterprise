@@ -41,7 +41,7 @@ const SUITES: SuiteDefinition[] = [
   {
     name: 'Phase 08: Fuel Transactions, Efficiency Analytics & Anomaly Engine',
     file: 'src/tests/fuel_management.test.ts',
-    expectedTests: 16,
+    expectedTests: 24,
   },
 ];
 

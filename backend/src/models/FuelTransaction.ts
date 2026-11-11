@@ -19,8 +19,10 @@ export interface IFuelTransaction extends Document {
   odometerReading: number;
   previousOdometerReading?: number;
   distanceSinceLastRefuel?: number;
+  isFullTank: boolean; // Indicates tank was filled to 100% capacity (boundary for true full-to-full calculation)
+  calculationMethod?: 'FULL_TO_FULL' | 'INTERMEDIATE_PARTIAL' | 'EV_CHARGING_SESSION' | 'MANUAL_BASELINE';
   fuelEfficiency?: number; // km/L or km/kWh
-  efficiencyStatus: 'CALCULATED' | 'ESTIMATED' | 'UNAVAILABLE';
+  efficiencyStatus: 'VERIFIED' | 'ESTIMATED' | 'UNAVAILABLE';
   paymentMethod: FuelPaymentMethod;
   receiptReference?: string;
   expenseId?: Types.ObjectId; // Traceable reference to synced Expense record
@@ -105,14 +107,25 @@ const FuelTransactionSchema = new Schema<IFuelTransaction>(
       type: Number,
       min: 0,
     },
+    isFullTank: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
+    calculationMethod: {
+      type: String,
+      enum: ['FULL_TO_FULL', 'INTERMEDIATE_PARTIAL', 'EV_CHARGING_SESSION', 'MANUAL_BASELINE'],
+      default: 'FULL_TO_FULL',
+    },
     fuelEfficiency: {
       type: Number,
       min: 0,
     },
     efficiencyStatus: {
       type: String,
-      enum: ['CALCULATED', 'ESTIMATED', 'UNAVAILABLE'],
+      enum: ['VERIFIED', 'ESTIMATED', 'UNAVAILABLE'],
       default: 'UNAVAILABLE',
+      index: true,
     },
     paymentMethod: {
       type: String,

@@ -62,6 +62,10 @@ const ExpenseSchema = new Schema<IExpense>(
 );
 
 ExpenseSchema.index({ organizationId: 1, category: 1, incurredAt: -1 });
+ExpenseSchema.index(
+  { organizationId: 1, fuelTransactionId: 1 },
+  { unique: true, sparse: true }
+);
 
 export const Expense = model<IExpense>('Expense', ExpenseSchema);
 

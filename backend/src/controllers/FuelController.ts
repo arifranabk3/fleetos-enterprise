@@ -10,6 +10,7 @@ import { AuthRequest } from '../middleware/auth';
 import { FuelEfficiencyEngine } from '../services/FuelEfficiencyEngine';
 import { FuelAnomalyDetectionEngine } from '../services/FuelAnomalyDetectionEngine';
 import { FuelExpenseSyncService } from '../services/FuelExpenseSyncService';
+import { FuelCSVService } from '../services/FuelCSVService';
 
 const transactionRepo = new BaseTenantRepository(FuelTransaction);
 const vendorRepo = new BaseTenantRepository(FuelVendor);
@@ -626,6 +627,113 @@ export class FuelController {
       await tx.save();
 
       res.json({ success: true, message: `Anomaly resolved as ${resolution}.`, data: tx });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: { message: error.message } });
+    }
+  }
+
+  /* ==========================================================================
+     CSV IMPORT & EXPORT
+     ========================================================================== */
+
+  /**
+   * POST /api/v1/fuel/import-csv
+   */
+  public static async importCSV(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (!req.tenant) {
+        res.status(401).json({ success: false, error: { message: 'Missing tenant context' } });
+        return;
+      }
+      const tenant = req.tenant;
+      const userId = tenant.userId as any;
+      const { csvData, previewOnly = false } = req.body;
+
+      if (!csvData || typeof csvData !== 'string') {
+        res.status(400).json({ success: false, error: { message: 'CSV data string is required in request body.' } });
+        return;
+      }
+
+      const { rows } = FuelCSVService.parseCSVText(csvData);
+      const validationResult = await FuelCSVService.previewAndValidate(tenant.organizationId, rows);
+
+      if (previewOnly) {
+        res.json({
+          success: true,
+          message: 'CSV preview and validation complete.',
+          data: validationResult,
+        });
+        return;
+      }
+
+      if (validationResult.validRows.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'No valid rows found to import.' },
+          data: validationResult,
+        });
+        return;
+      }
+
+      const execution = await FuelCSVService.executeImport(
+        tenant.organizationId,
+        userId?.toString() || 'operator',
+        validationResult.validRows
+      );
+
+      res.status(201).json({
+        success: true,
+        message: `Import complete. ${execution.insertedCount} inserted, ${execution.duplicateCount} duplicate(s) skipped.`,
+        data: {
+          ...execution,
+          invalidRowsCount: validationResult.invalidRows.length,
+          invalidRows: validationResult.invalidRows,
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: { message: error.message } });
+    }
+  }
+
+  /**
+   * GET /api/v1/fuel/export-csv
+   */
+  public static async exportCSV(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (!req.tenant) {
+        res.status(401).json({ success: false, error: { message: 'Missing tenant context' } });
+        return;
+      }
+      const tenant = req.tenant;
+      const { vehicleId, driverId, fuelType, startDate, endDate } = req.query;
+
+      const filter: any = { organizationId: tenant.organizationId, isVoided: false };
+      if (vehicleId) filter.vehicleId = vehicleId;
+      if (driverId) filter.driverId = driverId;
+      if (fuelType) filter.fuelType = fuelType;
+
+      if (startDate || endDate) {
+        filter.transactionDate = {};
+        if (startDate) filter.transactionDate.$gte = new Date(String(startDate));
+        if (endDate) filter.transactionDate.$lte = new Date(String(endDate));
+      }
+
+      const transactions = await FuelTransaction.find(filter)
+        .populate('vehicleId', 'plateNumber make modelName')
+        .populate('driverId', 'firstName lastName')
+        .populate('fuelVendorId', 'name')
+        .sort({ transactionDate: -1 })
+        .limit(2000)
+        .lean();
+
+      const csvString = FuelCSVService.generateCSVExport(transactions);
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="fuel-transactions-${new Date().toISOString().split('T')[0]}.csv"`
+      );
+      res.status(200).send(csvString);
     } catch (error: any) {
       res.status(500).json({ success: false, error: { message: error.message } });
     }
