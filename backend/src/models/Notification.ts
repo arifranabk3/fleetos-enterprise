@@ -2,8 +2,19 @@ import { Schema, model, Document, Types } from 'mongoose';
 
 export interface INotification extends Document {
   organizationId: Types.ObjectId;
-  recipientUserId: Types.ObjectId;
-  type: 'DISPATCH_ASSIGNED' | 'SHIPMENT_DELIVERED' | 'MAINTENANCE_DUE' | 'SPEEDING_ALERT' | 'SYSTEM_ALERT';
+  recipientUserId?: Types.ObjectId;
+  type:
+    | 'DISPATCH_ASSIGNED'
+    | 'SHIPMENT_DELIVERED'
+    | 'MAINTENANCE_DUE'
+    | 'COMPLIANCE_EXPIRING'
+    | 'SPEEDING_ALERT'
+    | 'FUEL_ANOMALY'
+    | 'DRIVER_LICENSE_EXPIRING'
+    | 'DRIVER_DOCUMENT_EXPIRING'
+    | 'DRIVER_SHIFT_ALERT'
+    | 'DRIVER_INCIDENT_ALERT'
+    | 'SYSTEM_ALERT';
   title: string;
   message: string;
   metadata?: Record<string, any>;
@@ -24,12 +35,23 @@ const NotificationSchema = new Schema<INotification>(
     recipientUserId: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
       index: true,
     },
     type: {
       type: String,
-      enum: ['DISPATCH_ASSIGNED', 'SHIPMENT_DELIVERED', 'MAINTENANCE_DUE', 'SPEEDING_ALERT', 'SYSTEM_ALERT'],
+      enum: [
+        'DISPATCH_ASSIGNED',
+        'SHIPMENT_DELIVERED',
+        'MAINTENANCE_DUE',
+        'COMPLIANCE_EXPIRING',
+        'SPEEDING_ALERT',
+        'FUEL_ANOMALY',
+        'DRIVER_LICENSE_EXPIRING',
+        'DRIVER_DOCUMENT_EXPIRING',
+        'DRIVER_SHIFT_ALERT',
+        'DRIVER_INCIDENT_ALERT',
+        'SYSTEM_ALERT',
+      ],
       required: true,
     },
     title: { type: String, required: true },

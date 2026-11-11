@@ -69,16 +69,27 @@ export class AssignmentController {
         return res.status(409).json({ success: false, error: { message: 'Driver already has an active assignment.' } });
       }
 
-      // 4. Create Assignment record
-      const assignment = await assignmentRepo.create(req.tenant, {
-        vehicleId: vehicle._id,
-        driverId: driver._id,
-        assignedBy: req.tenant.userId as any,
-        assignedAt: new Date(),
-        status: 'ACTIVE',
-        startOdometerKm: vehicle.odometerKm,
-        notes,
-      } as any);
+      // 4. Create Assignment record (safeguarded by DB partial unique index)
+      let assignment;
+      try {
+        assignment = await assignmentRepo.create(req.tenant, {
+          vehicleId: vehicle._id,
+          driverId: driver._id,
+          assignedBy: req.tenant.userId as any,
+          assignedAt: new Date(),
+          status: 'ACTIVE',
+          startOdometerKm: vehicle.odometerKm,
+          notes,
+        } as any);
+      } catch (dbErr: any) {
+        if (dbErr.code === 11000) {
+          return res.status(409).json({
+            success: false,
+            error: { message: 'Concurrent assignment conflict: An active assignment already exists for this vehicle or driver.' },
+          });
+        }
+        throw dbErr;
+      }
 
       // 5. Atomic state update on Vehicle & Driver
       vehicle.status = 'ASSIGNED';

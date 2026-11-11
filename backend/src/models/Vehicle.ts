@@ -24,12 +24,25 @@ export interface IVehicle extends Document {
   capacityKg: number;
   status: VehicleStatus;
   currentDriverId?: Types.ObjectId;
+  lastLocation?: {
+    latitude: number;
+    longitude: number;
+    speedKmh: number;
+    headingDeg: number;
+    motionStatus: 'MOVING' | 'IDLE' | 'STOPPED' | 'OFFLINE';
+    source: 'SIMULATED' | 'HARDWARE_GPS';
+    isSimulated: boolean;
+    recordedAt: Date;
+    updatedAt: Date;
+  };
   odometerKm: number;
   insuranceExpiry?: Date;
   registrationExpiry?: Date;
   inspectionExpiry?: Date;
   purchaseDate?: Date;
   documents: IVehicleDocument[];
+  preMaintenanceStatus?: VehicleStatus;
+  activeMaintenanceRecordCount?: number;
   notes?: string;
   isArchived: boolean;
   createdAt: Date;
@@ -99,12 +112,40 @@ const VehicleSchema = new Schema<IVehicle>(
       type: Schema.Types.ObjectId,
       ref: 'Driver',
     },
+    lastLocation: {
+      latitude: { type: Number },
+      longitude: { type: Number },
+      speedKmh: { type: Number, default: 0 },
+      headingDeg: { type: Number, default: 0 },
+      motionStatus: {
+        type: String,
+        enum: ['MOVING', 'IDLE', 'STOPPED', 'OFFLINE'],
+        default: 'STOPPED',
+      },
+      source: {
+        type: String,
+        enum: ['SIMULATED', 'HARDWARE_GPS'],
+        default: 'SIMULATED',
+      },
+      isSimulated: { type: Boolean, default: true },
+      recordedAt: { type: Date },
+      updatedAt: { type: Date, default: Date.now },
+    },
     odometerKm: { type: Number, default: 0 },
     insuranceExpiry: { type: Date },
     registrationExpiry: { type: Date },
     inspectionExpiry: { type: Date },
     purchaseDate: { type: Date },
     documents: [VehicleDocumentSchema],
+    preMaintenanceStatus: {
+      type: String,
+      enum: ['AVAILABLE', 'ASSIGNED', 'IN_TRANSIT', 'MAINTENANCE', 'OUT_OF_SERVICE', 'RETIRED'],
+    },
+    activeMaintenanceRecordCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     notes: { type: String },
     isArchived: { type: Boolean, default: false, index: true },
   },

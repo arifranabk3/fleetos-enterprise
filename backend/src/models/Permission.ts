@@ -25,7 +25,7 @@ const PermissionSchema = new Schema<IPermission>(
     domain: {
       type: String,
       required: true,
-      enum: ['FLEET', 'DISPATCH', 'TRACKING', 'BILLING', 'MAINTENANCE', 'USERS', 'REPORTS'],
+      enum: ['FLEET', 'DRIVERS', 'DISPATCH', 'TRACKING', 'BILLING', 'MAINTENANCE', 'USERS', 'REPORTS'],
     },
     description: {
       type: String,

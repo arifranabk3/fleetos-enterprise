@@ -13,6 +13,9 @@ export interface IExpense extends Document {
   receiptUrl?: string;
   incurredAt: Date;
   approvedBy?: Types.ObjectId;
+  fuelTransactionId?: Types.ObjectId; // Traceable reference to Phase 08 FuelTransaction
+  isVoided?: boolean;
+  voidReason?: string;
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -48,6 +51,9 @@ const ExpenseSchema = new Schema<IExpense>(
     receiptUrl: { type: String },
     incurredAt: { type: Date, default: Date.now, index: true },
     approvedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    fuelTransactionId: { type: Schema.Types.ObjectId, ref: 'FuelTransaction', index: true },
+    isVoided: { type: Boolean, default: false, index: true },
+    voidReason: { type: String },
     notes: { type: String },
   },
   {
@@ -56,6 +62,10 @@ const ExpenseSchema = new Schema<IExpense>(
 );
 
 ExpenseSchema.index({ organizationId: 1, category: 1, incurredAt: -1 });
+ExpenseSchema.index(
+  { organizationId: 1, fuelTransactionId: 1 },
+  { unique: true, sparse: true }
+);
 
 export const Expense = model<IExpense>('Expense', ExpenseSchema);
 

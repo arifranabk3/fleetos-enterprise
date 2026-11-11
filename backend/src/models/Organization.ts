@@ -9,6 +9,10 @@ export interface IOrganization extends Document {
     telemetryIntervalSeconds: number;
     allowSimulatedGps: boolean;
     currency: string;
+    attendanceSettings?: {
+      lateStartGracePeriodMinutes: number;
+      timezone?: string;
+    };
   };
   createdAt: Date;
   updatedAt: Date;
@@ -43,6 +47,10 @@ const OrganizationSchema = new Schema<IOrganization>(
       telemetryIntervalSeconds: { type: Number, default: 5 },
       allowSimulatedGps: { type: Boolean, default: true },
       currency: { type: String, default: 'USD' },
+      attendanceSettings: {
+        lateStartGracePeriodMinutes: { type: Number, default: 15, min: 0, max: 120 },
+        timezone: { type: String, default: 'UTC' },
+      },
     },
   },
   {
