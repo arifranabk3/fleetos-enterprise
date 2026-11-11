@@ -189,7 +189,10 @@ const DriverSettlementSchema = new Schema<IDriverSettlement>(
 
 // Compound indexes
 DriverSettlementSchema.index({ organizationId: 1, settlementNumber: 1 }, { unique: true });
-DriverSettlementSchema.index({ organizationId: 1, driverId: 1, periodStart: 1, periodEnd: 1 });
+DriverSettlementSchema.index(
+  { organizationId: 1, driverId: 1, periodStart: 1, periodEnd: 1 },
+  { unique: true, partialFilterExpression: { status: { $in: ['DRAFT', 'CALCULATED', 'REVIEWED', 'APPROVED', 'PAID'] } } }
+);
 DriverSettlementSchema.index({ organizationId: 1, status: 1 });
 
 export const DriverSettlement = model<IDriverSettlement>('DriverSettlement', DriverSettlementSchema);

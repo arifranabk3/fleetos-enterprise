@@ -177,6 +177,15 @@ export class DriverSettlementController {
         data: settlement,
       });
     } catch (error: any) {
+      if (error.code === 11000 || error.message?.includes('E11000')) {
+        return res.status(409).json({
+          success: false,
+          error: {
+            code: 'SETTLEMENT_CONFLICT',
+            message: 'A settlement for this driver and period or with this number already exists.',
+          },
+        });
+      }
       if (error.message?.includes('SETTLEMENT_OVERLAP')) {
         return res.status(409).json({
           success: false,

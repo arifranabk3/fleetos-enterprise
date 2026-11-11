@@ -142,15 +142,41 @@ export class PaymentReconciliationService {
   ): Promise<IPaymentReceipt> {
     const orgId = typeof tenant.organizationId === 'string' ? new Types.ObjectId(tenant.organizationId) : tenant.organizationId;
 
-    const receipt = await PaymentReceipt.findOne({ organizationId: orgId, _id: receiptId });
+    // Atomic CAS update: transition status from RECORDED/RECONCILED to REVERSED
+    const receipt = await PaymentReceipt.findOneAndUpdate(
+      {
+        organizationId: orgId,
+        _id: receiptId,
+        status: { $in: ['RECORDED', 'RECONCILED'] },
+      },
+      {
+        $set: {
+          status: 'REVERSED',
+          reversalReason,
+          reversedBy,
+          reversedAt: new Date(),
+        },
+        $push: {
+          auditTrail: {
+            action: 'RECEIPT_REVERSED',
+            performedBy: reversedBy,
+            timestamp: new Date(),
+            note: `Reversed receipt. Reason: ${reversalReason}`,
+          },
+        },
+      },
+      { new: true }
+    );
+
     if (!receipt) {
-      throw new Error('RECEIPT_NOT_FOUND: Payment receipt does not exist in organization.');
-    }
-    if (receipt.status === 'REVERSED') {
+      const existing = await PaymentReceipt.findOne({ organizationId: orgId, _id: receiptId });
+      if (!existing) {
+        throw new Error('RECEIPT_NOT_FOUND: Payment receipt does not exist in organization.');
+      }
       throw new Error('RECEIPT_ALREADY_REVERSED: This receipt has already been reversed.');
     }
 
-    // Revert each invoice allocation
+    // Revert each invoice allocation atomically
     for (const alloc of receipt.allocations) {
       const inv = await Invoice.findOne({ organizationId: orgId, _id: alloc.invoiceId });
       if (inv) {
@@ -172,18 +198,6 @@ export class PaymentReconciliationService {
       }
     }
 
-    receipt.status = 'REVERSED';
-    receipt.reversalReason = reversalReason;
-    receipt.reversedBy = reversedBy;
-    receipt.reversedAt = new Date();
-    receipt.auditTrail.push({
-      action: 'RECEIPT_REVERSED',
-      performedBy: reversedBy,
-      timestamp: new Date(),
-      note: `Reversed receipt. Reason: ${reversalReason}`,
-    });
-
-    await receipt.save();
     return receipt;
   }
 }

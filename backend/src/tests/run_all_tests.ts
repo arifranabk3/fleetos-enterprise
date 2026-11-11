@@ -63,6 +63,11 @@ const SUITES: SuiteDefinition[] = [
     file: 'src/tests/financial_reporting.test.ts',
     expectedTests: 15,
   },
+  {
+    name: 'Phase 10.4: Financial Hardening, Concurrency & Security Suite',
+    file: 'src/tests/financial_hardening.test.ts',
+    expectedTests: 7,
+  },
 ];
 
 async function runCommand(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
