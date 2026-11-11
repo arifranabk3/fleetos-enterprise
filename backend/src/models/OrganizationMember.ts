@@ -5,7 +5,9 @@ export interface IOrganizationMember extends Document {
   organizationId: Types.ObjectId;
   userId: Types.ObjectId;
   role: UserRole;
+  customRoleId?: Types.ObjectId;
   status: 'ACTIVE' | 'INVITED' | 'SUSPENDED';
+  invitedBy?: Types.ObjectId;
   joinedAt: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -28,20 +30,31 @@ const OrganizationMemberSchema = new Schema<IOrganizationMember>(
     role: {
       type: String,
       enum: [
-        'PLATFORM_SUPER_ADMIN',
-        'ORGANIZATION_ADMIN',
-        'DISPATCH_MANAGER',
+        'SUPER_ADMIN',
+        'ORGANIZATION_OWNER',
+        'ADMIN',
         'FLEET_MANAGER',
-        'SAFETY_OFFICER',
+        'DISPATCHER',
         'DRIVER',
-        'CUSTOMER',
+        'ACCOUNTANT',
+        'VIEWER',
       ],
-      default: 'ORGANIZATION_ADMIN',
+      default: 'VIEWER',
+      required: true,
+    },
+    customRoleId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Role',
     },
     status: {
       type: String,
       enum: ['ACTIVE', 'INVITED', 'SUSPENDED'],
       default: 'ACTIVE',
+      index: true,
+    },
+    invitedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
     },
     joinedAt: {
       type: Date,
@@ -53,11 +66,11 @@ const OrganizationMemberSchema = new Schema<IOrganizationMember>(
   }
 );
 
-// One active membership per user per organization
+// Enforce single active membership per user per organization
 OrganizationMemberSchema.index({ organizationId: 1, userId: 1 }, { unique: true });
+OrganizationMemberSchema.index({ userId: 1, status: 1 });
 
 export const OrganizationMember = model<IOrganizationMember>(
   'OrganizationMember',
   OrganizationMemberSchema
 );
-

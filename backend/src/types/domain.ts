@@ -1,17 +1,42 @@
 export type UserRole = 
-  | 'PLATFORM_SUPER_ADMIN'
-  | 'ORGANIZATION_ADMIN'
-  | 'DISPATCH_MANAGER'
+  | 'SUPER_ADMIN'
+  | 'ORGANIZATION_OWNER'
+  | 'ADMIN'
   | 'FLEET_MANAGER'
-  | 'SAFETY_OFFICER'
+  | 'DISPATCHER'
   | 'DRIVER'
-  | 'CUSTOMER';
+  | 'ACCOUNTANT'
+  | 'VIEWER';
+
+export type PermissionDomain =
+  | 'ORGANIZATION'
+  | 'USERS'
+  | 'FLEET'
+  | 'DRIVERS'
+  | 'SHIPMENTS'
+  | 'DISPATCH'
+  | 'TRACKING'
+  | 'MAINTENANCE'
+  | 'EXPENSES'
+  | 'BILLING'
+  | 'REPORTS'
+  | 'NOTIFICATIONS'
+  | 'AUDIT_LOGS';
+
+export type PermissionAction =
+  | 'CREATE'
+  | 'READ'
+  | 'UPDATE'
+  | 'DELETE'
+  | 'MANAGE'
+  | 'EXPORT';
 
 export interface TenantContext {
   organizationId: string;
-  name: string;
-  slug: string;
-  plan: 'STARTER' | 'GROWTH' | 'ENTERPRISE';
+  name?: string;
+  slug?: string;
+  role: UserRole;
+  permissions: string[];
 }
 
 export type VehicleStatus = 
@@ -38,4 +63,3 @@ export interface GeoLocation {
   speed?: number;
   timestamp: string;
 }
-

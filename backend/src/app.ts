@@ -1,9 +1,12 @@
-import express, { Application, Request, Response } from 'express';
+import express, { Application, Request, Response, NextFunction } from 'express';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+
+import authRoutes from './routes/authRoutes';
+import organizationRoutes from './routes/organizationRoutes';
 
 export const createApp = (): { app: Application; server: http.Server; io: SocketIOServer } => {
   const app = express();
@@ -38,6 +41,21 @@ export const createApp = (): { app: Application; server: http.Server; io: Socket
     });
   });
 
+  // Modular API Routes
+  app.use('/api/v1/auth', authRoutes);
+  app.use('/api/v1/organizations', organizationRoutes);
+
+  // Centralized Error Handler
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    console.error('[Centralized Error]:', err);
+    res.status(err.status || 500).json({
+      success: false,
+      error: {
+        code: err.code || 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'An unexpected error occurred.',
+      },
+    });
+  });
+
   return { app, server, io };
 };
-

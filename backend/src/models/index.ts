@@ -4,6 +4,8 @@ export * from './OrganizationMember';
 export * from './User';
 export * from './Role';
 export * from './Permission';
+export * from './Session';
+export * from './Invitation';
 
 // 2. Fleet & Asset Management Models
 export * from './Vehicle';

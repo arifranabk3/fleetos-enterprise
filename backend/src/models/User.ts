@@ -1,28 +1,25 @@
 import { Schema, model, Document, Types } from 'mongoose';
-import { UserRole } from '../types/domain';
 
 export interface IUser extends Document {
-  organizationId: Types.ObjectId;
   firstName: string;
   lastName: string;
   email: string;
   passwordHash: string;
-  role: UserRole;
   phone?: string;
-  status: 'ACTIVE' | 'INACTIVE' | 'INVITED';
+  status: 'ACTIVE' | 'INACTIVE' | 'UNVERIFIED';
+  isEmailVerified: boolean;
+  emailVerificationTokenHash?: string;
+  emailVerificationExpiresAt?: Date;
+  passwordResetTokenHash?: string;
+  passwordResetExpiresAt?: Date;
   lastLoginAt?: Date;
+  lastActiveOrganizationId?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
 
 const UserSchema = new Schema<IUser>(
   {
-    organizationId: {
-      type: Schema.Types.ObjectId,
-      ref: 'Organization',
-      required: [true, 'Organization ID is mandatory for tenant isolation'],
-      index: true,
-    },
     firstName: {
       type: String,
       required: true,
@@ -36,25 +33,14 @@ const UserSchema = new Schema<IUser>(
     email: {
       type: String,
       required: true,
+      unique: true,
       trim: true,
       lowercase: true,
+      index: true,
     },
     passwordHash: {
       type: String,
       required: true,
-    },
-    role: {
-      type: String,
-      enum: [
-        'PLATFORM_SUPER_ADMIN',
-        'ORGANIZATION_ADMIN',
-        'DISPATCH_MANAGER',
-        'FLEET_MANAGER',
-        'SAFETY_OFFICER',
-        'DRIVER',
-        'CUSTOMER',
-      ],
-      default: 'ORGANIZATION_ADMIN',
     },
     phone: {
       type: String,
@@ -62,19 +48,27 @@ const UserSchema = new Schema<IUser>(
     },
     status: {
       type: String,
-      enum: ['ACTIVE', 'INACTIVE', 'INVITED'],
+      enum: ['ACTIVE', 'INACTIVE', 'UNVERIFIED'],
       default: 'ACTIVE',
+      index: true,
     },
-    lastLoginAt: {
-      type: Date,
+    isEmailVerified: {
+      type: Boolean,
+      default: true, // Auto-verified in dev/demo environment
+    },
+    emailVerificationTokenHash: { type: String },
+    emailVerificationExpiresAt: { type: Date },
+    passwordResetTokenHash: { type: String },
+    passwordResetExpiresAt: { type: Date },
+    lastLoginAt: { type: Date },
+    lastActiveOrganizationId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Organization',
     },
   },
   {
     timestamps: true,
   }
 );
-
-// Compound tenant isolation index: email must be unique per organization
-UserSchema.index({ organizationId: 1, email: 1 }, { unique: true });
 
 export const User = model<IUser>('User', UserSchema);
