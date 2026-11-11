@@ -24,3 +24,4 @@ Method: `EV_CHARGING_SESSION`.
 - `VERIFIED`: Tank-to-tank full cycles and verified full EV charges.
 - `ESTIMATED`: Interim partial refuels and zero-distance top-offs.
 - `UNAVAILABLE`: Missing baselines, negative distances, or odometer rollbacks.
+

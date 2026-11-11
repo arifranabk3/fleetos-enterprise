@@ -20,3 +20,4 @@ Every non-voided `FuelTransaction` corresponds to exactly one `Expense` entry wi
 
 3. **Void Synchronization (`FuelExpenseSyncService.voidFuelExpense`):**
    - When a fuel transaction is voided, the linked expense is updated with `isVoided: true`, recording the operational justification without destroying historical audit trails.
+

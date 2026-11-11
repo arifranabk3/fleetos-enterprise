@@ -254,3 +254,4 @@ export default function NewFuelTransactionPage() {
     </div>
   );
 }
+

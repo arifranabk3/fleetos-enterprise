@@ -4,16 +4,20 @@ import { DriverStatus } from '../types/domain';
 export interface IDriver extends Document {
   organizationId: Types.ObjectId;
   userId?: Types.ObjectId;
+  employeeNumber?: string;
   fullName: string;
   email: string;
   phone: string;
   address?: string;
   licenseNumber: string;
   licenseClass: string;
+  licenseCategories?: string[];
+  licenseIssueDate?: Date;
   licenseExpiry: Date;
   employmentStatus: 'FULL_TIME' | 'PART_TIME' | 'CONTRACTOR';
   status: DriverStatus;
   assignedVehicleId?: Types.ObjectId;
+  assignedDepot?: string;
   rating: number;
   emergencyContact: {
     name: string;
@@ -22,6 +26,8 @@ export interface IDriver extends Document {
   };
   joiningDate: Date;
   notes?: string;
+  createdBy?: Types.ObjectId;
+  updatedBy?: Types.ObjectId;
   isArchived: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -38,6 +44,11 @@ const DriverSchema = new Schema<IDriver>(
     userId: {
       type: Schema.Types.ObjectId,
       ref: 'User',
+    },
+    employeeNumber: {
+      type: String,
+      trim: true,
+      uppercase: true,
     },
     fullName: {
       type: String,
@@ -66,6 +77,8 @@ const DriverSchema = new Schema<IDriver>(
       type: String,
       default: 'CDL-A',
     },
+    licenseCategories: [{ type: String, trim: true, uppercase: true }],
+    licenseIssueDate: { type: Date },
     licenseExpiry: {
       type: Date,
       required: true,
@@ -85,6 +98,10 @@ const DriverSchema = new Schema<IDriver>(
       type: Schema.Types.ObjectId,
       ref: 'Vehicle',
     },
+    assignedDepot: {
+      type: String,
+      trim: true,
+    },
     rating: {
       type: Number,
       default: 5.0,
@@ -101,6 +118,14 @@ const DriverSchema = new Schema<IDriver>(
       default: Date.now,
     },
     notes: { type: String },
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    updatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
     isArchived: { type: Boolean, default: false, index: true },
   },
   {
@@ -110,6 +135,7 @@ const DriverSchema = new Schema<IDriver>(
 
 // Compound tenant isolation index: license unique within organization
 DriverSchema.index({ organizationId: 1, licenseNumber: 1 }, { unique: true });
+DriverSchema.index({ organizationId: 1, employeeNumber: 1 }, { sparse: true });
 DriverSchema.index({ organizationId: 1, email: 1 });
 DriverSchema.index({ organizationId: 1, status: 1, isArchived: 1 });
 

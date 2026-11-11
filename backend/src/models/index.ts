@@ -11,6 +11,9 @@ export * from './Invitation';
 export * from './Vehicle';
 export * from './Driver';
 export * from './Assignment';
+export * from './DriverDocument';
+export * from './DriverShift';
+export * from './DriverIncident';
 
 // 3. Logistics, Dispatch & Tracking Models
 export * from './Customer';

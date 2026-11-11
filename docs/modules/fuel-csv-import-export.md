@@ -25,3 +25,4 @@ The Fuel CSV Service provides high-throughput, organization-isolated batch proce
 - Filters by `vehicleId`, `driverId`, `fuelType`, `startDate`, `endDate`.
 - Returns streaming `text/csv` with `Content-Disposition: attachment; filename="fuel-transactions-YYYY-MM-DD.csv"`.
 - All fields are escaped against formula injection.
+
