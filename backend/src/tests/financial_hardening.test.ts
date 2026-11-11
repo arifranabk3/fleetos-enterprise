@@ -22,6 +22,7 @@ import {
   DriverSettlement,
   JournalEntry,
   LedgerAccount,
+  DriverShift,
 } from '../models';
 
 console.log('================================================================================');
@@ -443,7 +444,62 @@ async function runHardeningAndConcurrencySuite() {
 
     assert.strictEqual(successSettlements.length, 1, 'Only one settlement for driver in period must be calculated');
     assert.strictEqual(rejectedSettlements.length, 1, 'Overlapping settlement must be rejected with 409 Conflict');
-    console.log('[PASS] Test 4: Driver settlement concurrent calculation overlap prevention verified.');
+
+    // Test Gate 4 settlement period overlap scenarios:
+    // 1. Fully contained period (e.g., Nov 2 - Nov 5)
+    const containedRes = await testHttpRequest(
+      httpServer!,
+      'POST',
+      '/api/v1/settlements/calculate',
+      {
+        Authorization: `Bearer ${tokenA}`,
+        'x-organization-id': tenantA._id.toString(),
+      },
+      {
+        settlementNumber: 'STL-CONTAINED-001',
+        driverId: driverA._id.toString(),
+        periodStart: new Date('2026-11-02').toISOString(),
+        periodEnd: new Date('2026-11-05').toISOString(),
+      }
+    );
+    assert.strictEqual(containedRes.status, 409, 'Fully contained period must be rejected with 409');
+
+    // 2. Partially overlapping period (e.g., Nov 5 - Nov 10)
+    const partialOverlapRes = await testHttpRequest(
+      httpServer!,
+      'POST',
+      '/api/v1/settlements/calculate',
+      {
+        Authorization: `Bearer ${tokenA}`,
+        'x-organization-id': tenantA._id.toString(),
+      },
+      {
+        settlementNumber: 'STL-PARTIAL-001',
+        driverId: driverA._id.toString(),
+        periodStart: new Date('2026-11-05').toISOString(),
+        periodEnd: new Date('2026-11-10').toISOString(),
+      }
+    );
+    assert.strictEqual(partialOverlapRes.status, 409, 'Partially overlapping period must be rejected with 409');
+
+    // 3. Adjacent non-overlapping period (e.g., Nov 8 - Nov 14)
+    const adjacentRes = await testHttpRequest(
+      httpServer!,
+      'POST',
+      '/api/v1/settlements/calculate',
+      {
+        Authorization: `Bearer ${tokenA}`,
+        'x-organization-id': tenantA._id.toString(),
+      },
+      {
+        settlementNumber: 'STL-ADJACENT-001',
+        driverId: driverA._id.toString(),
+        periodStart: new Date('2026-11-08').toISOString(),
+        periodEnd: new Date('2026-11-14').toISOString(),
+      }
+    );
+    assert.strictEqual(adjacentRes.status, 201, 'Adjacent non-overlapping period must succeed with 201');
+    console.log('[PASS] Test 4: Driver settlement period overlap policies verified (exact, partial, contained, adjacent).');
 
     console.log('\n--- PART 5: MULTI-TENANT FINANCIAL ISOLATION & IDOR FORGERY ---');
 
@@ -581,8 +637,406 @@ async function runHardeningAndConcurrencySuite() {
     }
     console.log('[PASS] Test 7: Complete suite of spreadsheet formula injection vectors safely neutralized.');
 
+    console.log('\n--- PART 8: INVOICE RESERVATION FENCING & PREEMPTION RECOVERY ---');
+    // Test 8: Fenced reservation preemption simulation
+    // 1. Create a shipment
+    const fencedShipment = await Shipment.create({
+      organizationId: tenantA._id,
+      trackingNumber: 'TRK-FENCE-001',
+      customer: { name: customerA.name, email: customerA.email, phone: customerA.phone },
+      sender: { name: 'Sender', phone: '555', address: 'Addr', city: 'City', country: 'US' },
+      receiver: { name: 'Receiver', phone: '555', address: 'Addr', city: 'City', country: 'US' },
+      origin: { address: 'A', city: 'C', latitude: 10, longitude: 10 },
+      destination: { address: 'B', city: 'C', latitude: 20, longitude: 20 },
+      status: 'DELIVERED',
+      cargo: { description: 'Fenced Cargo', weightKg: 100 },
+      pricing: { quotedAmount: 500, currency: 'USD' },
+      createdBy: accountantA._id,
+    });
+
+    // 2. Request A acquires token A with expired timestamp
+    const tokenA_fenced = 'RES-TOKEN-A';
+    await Shipment.updateOne(
+      { _id: fencedShipment._id },
+      {
+        $set: {
+          billedInvoiceId: new Types.ObjectId(),
+          billingReservationToken: tokenA_fenced,
+          billingReservationExpiresAt: new Date(Date.now() - 10000), // Expired!
+        },
+      }
+    );
+
+    // 3. Request B acquires token B and successfully creates Invoice B
+    const invoiceB = await ShipmentInvoicingService.generateInvoiceFromShipments(
+      { organizationId: tenantA._id, role: 'ACCOUNTANT', userId: accountantA._id },
+      {
+        shipmentIds: [fencedShipment._id],
+        invoiceNumber: 'INV-FENCE-B-001',
+        dueAt: new Date(Date.now() + 86400000),
+        createdBy: accountantA._id,
+      }
+    );
+    assert.strictEqual(invoiceB.invoiceNumber, 'INV-FENCE-B-001');
+
+    // Verify shipment now permanently points to Invoice B and token is null
+    const shipmentAfterB = await Shipment.findById(fencedShipment._id);
+    assert.strictEqual(shipmentAfterB?.billedInvoiceId?.toString(), invoiceB._id.toString());
+    assert.strictEqual(shipmentAfterB?.billingReservationToken, null);
+
+    // 4. Request A resumes with its old token A and attempts to finalize an Invoice A
+    const invoiceA_draft = await Invoice.create({
+      organizationId: tenantA._id,
+      invoiceNumber: 'INV-FENCE-A-DRAFT',
+      customerId: customerA._id,
+      customer: { name: 'Cust', email: 'e', billingAddress: 'b' },
+      shipmentIds: [fencedShipment._id],
+      lineItems: [{ description: 'Test', quantity: 1, unitPriceCents: 50000, totalCents: 50000, taxRatePercent: 0, taxAmountCents: 0, discountAmountCents: 0, fuelSurchargeCents: 0 }],
+      subtotalCents: 50000,
+      totalAmountCents: 50000,
+      amountPaidCents: 0,
+      outstandingBalanceCents: 50000,
+      subtotalAmount: 500,
+      taxAmount: 0,
+      totalAmount: 500,
+      currency: 'USD',
+      status: 'ISSUED',
+      paymentTerms: 'NET_30',
+      issuedAt: new Date(),
+      dueAt: new Date(),
+    });
+
+    // Request A attempts to claim shipment with token A
+    const finalizeA = await Shipment.updateMany(
+      { _id: fencedShipment._id, organizationId: tenantA._id, billingReservationToken: tokenA_fenced },
+      { $set: { billedInvoiceId: invoiceA_draft._id, billingReservationToken: null } }
+    );
+    // Request A MUST match 0 shipments because Token A is lost
+    assert.strictEqual(finalizeA.modifiedCount, 0, 'Request A must match 0 shipments because token was lost');
+
+    // Request A executes compensating deletion of its unposted draft
+    await Invoice.deleteOne({ _id: invoiceA_draft._id, organizationId: tenantA._id });
+
+    // Request A error handler attempts to clear reservation for Token A
+    await Shipment.updateMany(
+      { _id: fencedShipment._id, organizationId: tenantA._id, billingReservationToken: tokenA_fenced },
+      { $set: { billedInvoiceId: null, billingReservationToken: null } }
+    );
+
+    // Assertions:
+    // Invoice B remains intact and un-deleted
+    const invoiceB_check = await Invoice.findById(invoiceB._id);
+    assert.ok(invoiceB_check, 'Invoice B must remain completely intact');
+    // Shipment still points to Invoice B
+    const shipmentFinal = await Shipment.findById(fencedShipment._id);
+    assert.strictEqual(shipmentFinal?.billedInvoiceId?.toString(), invoiceB._id.toString(), 'Shipment must still point to Invoice B');
+    console.log('[PASS] Test 8: Invoice reservation fencing preemption & safe draft cleanup verified.');
+
+    console.log('\n--- PART 9: ADVANCED PAYMENT IDEMPOTENCY & PAYLOAD FINGERPRINTING ---');
+    // Test 9: Advanced payment idempotency
+    const idemKey = 'IDEMP-SAFETY-KEY-999';
+    // Sub-case 1: Sequential retry with same payload
+    const receipt1 = await PaymentReconciliationService.recordAndReconcilePayment(
+      { organizationId: tenantA._id, role: 'ACCOUNTANT', userId: accountantA._id },
+      {
+        receiptNumber: 'REC-IDEMP-01',
+        customerId: customerA._id,
+        amountCents: 10000,
+        referenceNumber: 'REF-IDEMP-01',
+        paymentMethod: 'CHECK',
+        allocations: [{ invoiceId: targetInvoice._id, invoiceNumber: targetInvoice.invoiceNumber, allocatedAmountCents: 10000 }],
+        recordedBy: accountantA._id,
+        idempotencyKey: idemKey,
+      }
+    );
+
+    const receipt2 = await PaymentReconciliationService.recordAndReconcilePayment(
+      { organizationId: tenantA._id, role: 'ACCOUNTANT', userId: accountantA._id },
+      {
+        receiptNumber: 'REC-IDEMP-01',
+        customerId: customerA._id,
+        amountCents: 10000,
+        referenceNumber: 'REF-IDEMP-01',
+        paymentMethod: 'CHECK',
+        allocations: [{ invoiceId: targetInvoice._id, invoiceNumber: targetInvoice.invoiceNumber, allocatedAmountCents: 10000 }],
+        recordedBy: accountantA._id,
+        idempotencyKey: idemKey,
+      }
+    );
+    assert.strictEqual(receipt1._id.toString(), receipt2._id.toString(), 'Sequential retry must return exact same receipt');
+
+    // Sub-case 2: Payload mismatch rejection
+    let payloadMismatchCaught = false;
+    try {
+      await PaymentReconciliationService.recordAndReconcilePayment(
+        { organizationId: tenantA._id, role: 'ACCOUNTANT', userId: accountantA._id },
+        {
+          receiptNumber: 'REC-IDEMP-01',
+          customerId: customerA._id,
+          amountCents: 20000, // Different amount!
+          referenceNumber: 'REF-IDEMP-01',
+          paymentMethod: 'CHECK',
+          allocations: [{ invoiceId: targetInvoice._id, invoiceNumber: targetInvoice.invoiceNumber, allocatedAmountCents: 20000 }],
+          recordedBy: accountantA._id,
+          idempotencyKey: idemKey,
+        }
+      );
+    } catch (err: any) {
+      if (err.message.includes('IDEMPOTENCY_KEY_PAYLOAD_MISMATCH')) {
+        payloadMismatchCaught = true;
+      }
+    }
+    assert.strictEqual(payloadMismatchCaught, true, 'Payload mismatch on same idempotency key must be rejected');
+
+    // Sub-case 3: Concurrent execution with same key
+    const concurrentIdemKey = 'IDEMP-CONCUR-KEY-777';
+    const concurrentIdemCalls = [
+      PaymentReconciliationService.recordAndReconcilePayment(
+        { organizationId: tenantA._id, role: 'ACCOUNTANT', userId: accountantA._id },
+        {
+          receiptNumber: 'REC-IDEMP-CONC-1',
+          customerId: customerA._id,
+          amountCents: 5000,
+          referenceNumber: 'REF-CONC-01',
+          paymentMethod: 'ACH',
+          allocations: [{ invoiceId: targetInvoice._id, invoiceNumber: targetInvoice.invoiceNumber, allocatedAmountCents: 5000 }],
+          recordedBy: accountantA._id,
+          idempotencyKey: concurrentIdemKey,
+        }
+      ),
+      PaymentReconciliationService.recordAndReconcilePayment(
+        { organizationId: tenantA._id, role: 'ACCOUNTANT', userId: accountantA._id },
+        {
+          receiptNumber: 'REC-IDEMP-CONC-1',
+          customerId: customerA._id,
+          amountCents: 5000,
+          referenceNumber: 'REF-CONC-01',
+          paymentMethod: 'ACH',
+          allocations: [{ invoiceId: targetInvoice._id, invoiceNumber: targetInvoice.invoiceNumber, allocatedAmountCents: 5000 }],
+          recordedBy: accountantA._id,
+          idempotencyKey: concurrentIdemKey,
+        }
+      ),
+    ];
+    const concResults = await Promise.allSettled(concurrentIdemCalls);
+    const concSuccess = concResults.filter((r) => r.status === 'fulfilled');
+    assert.ok(concSuccess.length >= 1, 'At least one request must succeed and return receipt');
+    const receiptsGenerated = await PaymentReceipt.find({ idempotencyKey: concurrentIdemKey });
+    assert.strictEqual(receiptsGenerated.length, 1, 'Exactly one receipt document must exist for the key');
+    console.log('[PASS] Test 9: Advanced payment idempotency & payload fingerprinting verified.');
+
+    console.log('\n--- PART 10: ATOMIC DRIVER SHIFT CLAIMING & PARTIAL AVAILABILITY ---');
+    // Test 10: Atomic driver shift claiming
+    // Scenario A: Partial availability - Request 10 shifts when only 8 are available
+    const createdShifts = [];
+    for (let i = 1; i <= 10; i++) {
+      const dayStr = i < 10 ? `0${i}` : `${i}`;
+      const s = await DriverShift.create({
+        organizationId: tenantA._id,
+        driverId: driverA._id,
+        shiftDate: `2026-12-${dayStr}`,
+        plannedStart: new Date(`2026-12-${dayStr}T08:00:00.000Z`),
+        plannedEnd: new Date(`2026-12-${dayStr}T16:00:00.000Z`),
+        actualStart: new Date(`2026-12-${dayStr}T08:00:00.000Z`),
+        actualEnd: new Date(`2026-12-${dayStr}T16:00:00.000Z`),
+        durationMinutes: 480,
+        status: 'COMPLETED',
+        createdBy: accountantA._id,
+      });
+      createdShifts.push(s);
+    }
+
+    // Mark 2 shifts as already claimed by a prior paid settlement
+    const priorSettlementId = new Types.ObjectId();
+    await DriverShift.updateMany(
+      { _id: { $in: [createdShifts[0]._id, createdShifts[1]._id] } },
+      { $set: { settlementId: priorSettlementId } }
+    );
+
+    // Scenario A: Request 10 shifts when 2 are already claimed. Must be REJECTED.
+    let partialRejected = false;
+    try {
+      await DriverSettlementCalculationService.calculateSettlement(
+        { organizationId: tenantA._id, role: 'ACCOUNTANT', userId: accountantA._id },
+        {
+          settlementNumber: 'STL-PARTIAL-FAIL',
+          driverId: driverA._id,
+          periodStart: new Date('2026-12-01T00:00:00Z'),
+          periodEnd: new Date('2026-12-10T23:59:59Z'),
+          calculatedBy: accountantA._id,
+        }
+      );
+    } catch (err: any) {
+      if (err.message.includes('PARTIAL_SHIFT_AVAILABILITY')) {
+        partialRejected = true;
+      }
+    }
+    assert.strictEqual(partialRejected, true, 'Partial availability must strictly reject settlement calculation');
+
+    // Verify 0 settlement documents created
+    const noSettlement = await DriverSettlement.findOne({ settlementNumber: 'STL-PARTIAL-FAIL' });
+    assert.strictEqual(noSettlement, null, 'Zero settlement records must exist for rejected partial calculation');
+
+    // Verify all 8 available shifts remain unclaimed (settlementId is null)
+    const unclaimedCount = await DriverShift.countDocuments({
+      _id: { $in: createdShifts.slice(2).map((s) => s._id) },
+      settlementId: null,
+    });
+    assert.strictEqual(unclaimedCount, 8, 'All 8 available shifts must remain unclaimed');
+
+    // Verify prior 2 shifts remain owned by prior settlement
+    const priorCount = await DriverShift.countDocuments({ settlementId: priorSettlementId });
+    assert.strictEqual(priorCount, 2, 'Prior 2 settlement shifts must remain untouched');
+
+    // Scenario B: Full availability - Request period with 100% available shifts (Dec 3 - Dec 10, exactly 8 shifts)
+    const fullSettlement = await DriverSettlementCalculationService.calculateSettlement(
+      { organizationId: tenantA._id, role: 'ACCOUNTANT', userId: accountantA._id },
+      {
+        settlementNumber: 'STL-FULL-SUCCESS',
+        driverId: driverA._id,
+        periodStart: new Date('2026-12-03T00:00:00Z'),
+        periodEnd: new Date('2026-12-10T23:59:59Z'),
+        calculatedBy: accountantA._id,
+      }
+    );
+    assert.strictEqual(fullSettlement.shiftsIncluded.length, 8, 'Full availability must claim all 8 shifts');
+    const claimedByFull = await DriverShift.countDocuments({ settlementId: fullSettlement._id });
+    assert.strictEqual(claimedByFull, 8, 'Exactly 8 shifts must be tagged with new settlementId');
+    console.log('[PASS] Test 10: Atomic driver shift claiming & partial availability rejection verified.');
+
+    console.log('\n--- PART 11: PAYMENT COMPENSATION ISOLATION ACROSS CONCURRENT OPERATIONS ---');
+    // Test 11: Two distinct concurrent allocations against overlapping invoices
+    // Seed invoices X, Y, Z
+    const invX = await Invoice.create({
+      organizationId: tenantA._id,
+      invoiceNumber: 'INV-COMP-X',
+      customerId: customerA._id,
+      customer: { name: 'C', email: 'e', billingAddress: 'a' },
+      lineItems: [{ description: 'Svc', quantity: 1, unitPriceCents: 50000, totalCents: 50000, taxRatePercent: 0, taxAmountCents: 0, discountAmountCents: 0, fuelSurchargeCents: 0 }],
+      subtotalCents: 50000,
+      totalAmountCents: 50000,
+      amountPaidCents: 0,
+      outstandingBalanceCents: 50000,
+      subtotalAmount: 500,
+      taxAmount: 0,
+      totalAmount: 500,
+      currency: 'USD',
+      status: 'ISSUED',
+      paymentTerms: 'NET_30',
+      issuedAt: new Date(),
+      dueAt: new Date(),
+    });
+
+    const invY = await Invoice.create({
+      organizationId: tenantA._id,
+      invoiceNumber: 'INV-COMP-Y',
+      customerId: customerA._id,
+      customer: { name: 'C', email: 'e', billingAddress: 'a' },
+      lineItems: [{ description: 'Svc', quantity: 1, unitPriceCents: 50000, totalCents: 50000, taxRatePercent: 0, taxAmountCents: 0, discountAmountCents: 0, fuelSurchargeCents: 0 }],
+      subtotalCents: 50000,
+      totalAmountCents: 50000,
+      amountPaidCents: 0,
+      outstandingBalanceCents: 50000,
+      subtotalAmount: 500,
+      taxAmount: 0,
+      totalAmount: 500,
+      currency: 'USD',
+      status: 'ISSUED',
+      paymentTerms: 'NET_30',
+      issuedAt: new Date(),
+      dueAt: new Date(),
+    });
+
+    const invZ = await Invoice.create({
+      organizationId: tenantA._id,
+      invoiceNumber: 'INV-COMP-Z',
+      customerId: customerA._id,
+      customer: { name: 'C', email: 'e', billingAddress: 'a' },
+      lineItems: [{ description: 'Svc', quantity: 1, unitPriceCents: 50000, totalCents: 50000, taxRatePercent: 0, taxAmountCents: 0, discountAmountCents: 0, fuelSurchargeCents: 0 }],
+      subtotalCents: 50000,
+      totalAmountCents: 50000,
+      amountPaidCents: 0,
+      outstandingBalanceCents: 50000,
+      subtotalAmount: 500,
+      taxAmount: 0,
+      totalAmount: 500,
+      currency: 'USD',
+      status: 'ISSUED',
+      paymentTerms: 'NET_30',
+      issuedAt: new Date(),
+      dueAt: new Date(),
+    });
+
+    // Operation B allocates against Y and Z successfully
+    const receiptB = await PaymentReconciliationService.recordAndReconcilePayment(
+      { organizationId: tenantA._id, role: 'ACCOUNTANT', userId: accountantA._id },
+      {
+        receiptNumber: 'REC-OP-B',
+        customerId: customerA._id,
+        amountCents: 40000,
+        referenceNumber: 'REF-B',
+        paymentMethod: 'WIRE',
+        allocations: [
+          { invoiceId: invY._id, invoiceNumber: invY.invoiceNumber, allocatedAmountCents: 20000 },
+          { invoiceId: invZ._id, invoiceNumber: invZ.invoiceNumber, allocatedAmountCents: 20000 },
+        ],
+        recordedBy: accountantA._id,
+        idempotencyKey: 'IDEMP-OP-B-KEY',
+      }
+    );
+    assert.strictEqual(receiptB.status, 'RECORDED');
+
+    // Operation A attempts to allocate against X (20,000) and Y (40,000). But Y only has 30,000 balance left!
+    // Operation A should update X, then fail on Y, and then compensate X.
+    let opAFailed = false;
+    try {
+      await PaymentReconciliationService.recordAndReconcilePayment(
+        { organizationId: tenantA._id, role: 'ACCOUNTANT', userId: accountantA._id },
+        {
+          receiptNumber: 'REC-OP-A',
+          customerId: customerA._id,
+          amountCents: 60000,
+          referenceNumber: 'REF-A',
+          paymentMethod: 'ACH',
+          allocations: [
+            { invoiceId: invX._id, invoiceNumber: invX.invoiceNumber, allocatedAmountCents: 20000 },
+            { invoiceId: invY._id, invoiceNumber: invY.invoiceNumber, allocatedAmountCents: 40000 }, // Exceeds remaining 30,000 balance!
+          ],
+          recordedBy: accountantA._id,
+          idempotencyKey: 'IDEMP-OP-A-KEY',
+        }
+      );
+    } catch (err: any) {
+      if (err.message.includes('ALLOCATION_EXCEEDS_BALANCE') || err.message.includes('ALLOCATION_RACE_DETECTED')) {
+        opAFailed = true;
+      }
+    }
+    assert.strictEqual(opAFailed, true, 'Operation A must fail due to insufficient balance on invoice Y');
+
+    // Verify Operation A left NO traces on Invoice X (compensated to original 50,000 balance)
+    const refreshedX = await Invoice.findById(invX._id);
+    assert.strictEqual(refreshedX?.outstandingBalanceCents, 50000, 'Invoice X must have 50,000 balance (fully compensated)');
+    assert.strictEqual(refreshedX?.amountPaidCents, 0, 'Invoice X amountPaid must be 0');
+
+    // Verify Operation B's allocations on Y and Z remain completely intact!
+    const refreshedY = await Invoice.findById(invY._id);
+    const refreshedZ = await Invoice.findById(invZ._id);
+    assert.strictEqual(refreshedY?.outstandingBalanceCents, 30000, 'Invoice Y balance must remain 30,000');
+    assert.strictEqual(refreshedY?.amountPaidCents, 20000, 'Invoice Y amountPaid must remain 20,000');
+    assert.strictEqual(refreshedZ?.outstandingBalanceCents, 30000, 'Invoice Z balance must remain 30,000');
+    assert.strictEqual(refreshedZ?.amountPaidCents, 20000, 'Invoice Z amountPaid must remain 20,000');
+
+    // Verify Receipt A was completely deleted during rollback
+    const receiptACheck = await PaymentReceipt.findOne({ receiptNumber: 'REC-OP-A' });
+    assert.strictEqual(receiptACheck, null, 'Transient Receipt A must be completely removed');
+
+    // Verify Receipt B remains intact
+    const receiptBCheck = await PaymentReceipt.findOne({ receiptNumber: 'REC-OP-B' });
+    assert.ok(receiptBCheck, 'Receipt B must remain completely intact');
+    console.log('[PASS] Test 11: Payment compensation isolation across concurrent operations verified.');
+
     console.log('\n================================================================================');
-    console.log('🎉 ALL 7 PHASE 10.4 HARDENING & CONCURRENCY TEST SUITES PASSED (100%)');
+    console.log('🎉 ALL 11 PHASE 10.4 HARDENING & CONCURRENCY TEST CASES PASSED (100%)');
     console.log('================================================================================');
   } finally {
     if (httpServer) {

@@ -66,7 +66,7 @@ const SUITES: SuiteDefinition[] = [
   {
     name: 'Phase 10.4: Financial Hardening, Concurrency & Security Suite',
     file: 'src/tests/financial_hardening.test.ts',
-    expectedTests: 7,
+    expectedTests: 11,
   },
 ];
 

@@ -16,6 +16,7 @@ export interface IDriverShift extends Document {
   lateStartMinutes?: number;
   status: DriverShiftStatus;
   notes?: string;
+  settlementId?: Types.ObjectId | null;
   createdBy: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -79,6 +80,12 @@ const DriverShiftSchema = new Schema<IDriverShift>(
     notes: {
       type: String,
       trim: true,
+    },
+    settlementId: {
+      type: Schema.Types.ObjectId,
+      ref: 'DriverSettlement',
+      default: null,
+      index: true,
     },
     createdBy: {
       type: Schema.Types.ObjectId,

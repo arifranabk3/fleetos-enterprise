@@ -44,16 +44,22 @@ export class ShipmentInvoicingService {
     }
 
     // 2. Validate shipment status and acquire atomic lock check
+    const now = new Date();
     for (const sh of shipments) {
       if (sh.status !== 'DELIVERED') {
         throw new Error(
           `INELIGIBLE_SHIPMENT_STATUS: Shipment '${sh.trackingNumber}' is in status '${sh.status}'. Only DELIVERED shipments can be invoiced.`
         );
       }
+      // If billedInvoiceId exists, check if it's an unexpired reservation or permanent billing
       if (sh.billedInvoiceId) {
-        throw new Error(
-          `DUPLICATE_SHIPMENT_BILLING: Shipment '${sh.trackingNumber}' is already locked/invoiced in Invoice '${sh.billedInvoiceId}'.`
-        );
+        const isExpiredReservation =
+          sh.billingReservationExpiresAt && sh.billingReservationExpiresAt < now;
+        if (!isExpiredReservation) {
+          throw new Error(
+            `DUPLICATE_SHIPMENT_BILLING: Shipment '${sh.trackingNumber}' is already locked/invoiced in Invoice '${sh.billedInvoiceId}'.`
+          );
+        }
       }
     }
 
@@ -79,15 +85,26 @@ export class ShipmentInvoicingService {
       );
     }
 
-    // Atomic CAS update: attempt to lock all shipments with a pending lock
+    // Atomic CAS update: attempt to lock all shipments with a unique reservation fencing token and 5-minute TTL
+    const reservationExpiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minute TTL against crash orphans
+    const reservationToken = `RES-${new Types.ObjectId().toString()}`;
+
     const lockResult = await Shipment.updateMany(
       {
         _id: { $in: input.shipmentIds },
         organizationId: orgId,
-        $or: [{ billedInvoiceId: null }, { billedInvoiceId: { $exists: false } }],
+        $or: [
+          { billedInvoiceId: null },
+          { billedInvoiceId: { $exists: false } },
+          { billingReservationExpiresAt: { $lt: now } }, // Self-healing expired reservations
+        ],
       },
       {
-        $set: { billedInvoiceId: new Types.ObjectId() }, // Temporary lock token
+        $set: {
+          billedInvoiceId: new Types.ObjectId(), // Temporary lock marker
+          billingReservationToken: reservationToken,
+          billingReservationExpiresAt: reservationExpiresAt,
+        },
       }
     );
 
@@ -202,16 +219,45 @@ export class ShipmentInvoicingService {
         ],
       });
 
-      // Update shipments to point permanently to the generated invoice
-      await Shipment.updateMany(
-        { _id: { $in: input.shipmentIds }, organizationId: orgId },
-        { $set: { billedInvoiceId: invoice._id } }
+      // Finalize shipments: verify fenced reservation token ownership before permanent binding
+      const finalizeResult = await Shipment.updateMany(
+        {
+          _id: { $in: input.shipmentIds },
+          organizationId: orgId,
+          billingReservationToken: reservationToken, // Fencing check: must still own reservation
+        },
+        {
+          $set: {
+            billedInvoiceId: invoice._id,
+            billingReservationToken: null,
+            billingReservationExpiresAt: null,
+          },
+        }
       );
+
+      // If ownership was lost during long computation (e.g., reservation expired and stolen by another process)
+      if (finalizeResult.modifiedCount !== input.shipmentIds.length) {
+        // Compensating rollback: delete generated invoice and throw fence conflict
+        await Invoice.deleteOne({ _id: invoice._id, organizationId: orgId });
+        throw new Error(
+          'INVOICE_RESERVATION_LOST: Invoicing reservation expired or was preempted before finalization. Invoice creation aborted.'
+        );
+      }
     } catch (err) {
-      // Release lock on error
+      // Safe release: only clear shipments that are STILL owned by this exact reservation token
       await Shipment.updateMany(
-        { _id: { $in: input.shipmentIds }, organizationId: orgId },
-        { $set: { billedInvoiceId: null } }
+        {
+          _id: { $in: input.shipmentIds },
+          organizationId: orgId,
+          billingReservationToken: reservationToken, // Never clear a newer request's reservation!
+        },
+        {
+          $set: {
+            billedInvoiceId: null,
+            billingReservationToken: null,
+            billingReservationExpiresAt: null,
+          },
+        }
       );
       throw err;
     }

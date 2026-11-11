@@ -186,6 +186,12 @@ export class DriverSettlementController {
           },
         });
       }
+      if (error.message?.includes('PARTIAL_SHIFT_AVAILABILITY')) {
+        return res.status(409).json({
+          success: false,
+          error: { code: 'PARTIAL_SHIFT_AVAILABILITY', message: error.message },
+        });
+      }
       if (error.message?.includes('SETTLEMENT_OVERLAP')) {
         return res.status(409).json({
           success: false,

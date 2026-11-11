@@ -4,6 +4,7 @@ export type PaymentMethod = 'BANK_TRANSFER' | 'CREDIT_CARD' | 'CHECK' | 'CASH' |
 export type PaymentReceiptStatus = 'RECORDED' | 'RECONCILED' | 'REVERSED';
 
 export interface IInvoiceAllocation {
+  allocationId?: string;
   invoiceId: Types.ObjectId;
   invoiceNumber: string;
   allocatedAmountCents: number;
@@ -85,6 +86,7 @@ const PaymentReceiptSchema = new Schema<IPaymentReceipt>(
     },
     allocations: [
       {
+        allocationId: { type: String },
         invoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true },
         invoiceNumber: { type: String, required: true },
         allocatedAmountCents: { type: Number, required: true, min: 1 },
