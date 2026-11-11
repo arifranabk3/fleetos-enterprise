@@ -58,6 +58,11 @@ const SUITES: SuiteDefinition[] = [
     file: 'src/tests/billing_api.test.ts',
     expectedTests: 24,
   },
+  {
+    name: 'Phase 10.3: Financial Reporting, Reconciliation & Integrity Engine',
+    file: 'src/tests/financial_reporting.test.ts',
+    expectedTests: 15,
+  },
 ];
 
 async function runCommand(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {

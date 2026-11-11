@@ -117,6 +117,22 @@ export default function BillingOverviewPage() {
           </Link>
 
           <Link
+            href="/billing/reports"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white text-navy-800 border border-navy-200 hover:bg-navy-50 shadow-sm transition"
+          >
+            <TrendingUp className="w-4 h-4 text-indigo-600" />
+            <span>Financial Reports</span>
+          </Link>
+
+          <Link
+            href="/billing/reconciliation"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white text-navy-800 border border-navy-200 hover:bg-navy-50 shadow-sm transition"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>Reconciliation</span>
+          </Link>
+
+          <Link
             href="/settlements"
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-navy-sidebar text-white hover:bg-navy-800 shadow-md transition"
           >
