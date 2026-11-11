@@ -49,8 +49,13 @@ const SUITES: SuiteDefinition[] = [
     expectedTests: 25,
   },
   {
-    name: 'Phase 10: Financial Architecture & Ledger Foundation',
+    name: 'Phase 10.0: Financial Architecture & Ledger Foundation',
     file: 'src/tests/financial_foundation.test.ts',
+    expectedTests: 24,
+  },
+  {
+    name: 'Phase 10.1: Rate Matrix, Freight Invoicing & Driver Settlement APIs',
+    file: 'src/tests/billing_api.test.ts',
     expectedTests: 24,
   },
 ];

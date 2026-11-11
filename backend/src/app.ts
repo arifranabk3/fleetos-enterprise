@@ -13,6 +13,7 @@ import trackingRoutes from './routes/trackingRoutes';
 import maintenanceRoutes from './routes/maintenanceRoutes';
 import fuelRoutes from './routes/fuelRoutes';
 import driverWorkforceRoutes from './routes/driverWorkforceRoutes';
+import billingRoutes from './routes/billingRoutes';
 import { SocketService } from './services/SocketService';
 
 export const createApp = (): { app: Application; server: http.Server; io: SocketIOServer } => {
@@ -60,6 +61,7 @@ export const createApp = (): { app: Application; server: http.Server; io: Socket
   app.use('/api/v1', maintenanceRoutes);
   app.use('/api/v1', fuelRoutes);
   app.use('/api/v1', driverWorkforceRoutes);
+  app.use('/api/v1', billingRoutes);
 
   // Centralized Error Handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
