@@ -10,6 +10,7 @@ export interface DemoVehicle {
   status: 'AVAILABLE' | 'IN_TRANSIT' | 'MAINTENANCE' | 'ASSIGNED';
   driver: string;
   location: string;
+  speedKmh?: number;
   batteryFuel: number;
   lat: number;
   lng: number;

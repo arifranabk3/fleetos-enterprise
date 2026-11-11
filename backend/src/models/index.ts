@@ -19,6 +19,8 @@ export * from './Dispatch';
 export * from './Route';
 export * from './Delivery';
 export * from './TelemetryEvent';
+export * from './TelemetryAlert';
+export * from './Geofence';
 
 // 4. Financial & Operational Models
 export * from './MaintenanceRecord';

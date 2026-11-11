@@ -9,6 +9,8 @@ import authRoutes from './routes/authRoutes';
 import organizationRoutes from './routes/organizationRoutes';
 import fleetRoutes from './routes/fleetRoutes';
 import logisticsRoutes from './routes/logisticsRoutes';
+import trackingRoutes from './routes/trackingRoutes';
+import { SocketService } from './services/SocketService';
 
 export const createApp = (): { app: Application; server: http.Server; io: SocketIOServer } => {
   const app = express();
@@ -20,6 +22,9 @@ export const createApp = (): { app: Application; server: http.Server; io: Socket
       credentials: true,
     },
   });
+
+  // Initialize Socket.IO Enterprise Architecture
+  SocketService.initialize(io);
 
   // Base security & parsing middleware
   app.use(helmet());
@@ -48,6 +53,7 @@ export const createApp = (): { app: Application; server: http.Server; io: Socket
   app.use('/api/v1/organizations', organizationRoutes);
   app.use('/api/v1', fleetRoutes);
   app.use('/api/v1', logisticsRoutes);
+  app.use('/api/v1', trackingRoutes);
 
   // Centralized Error Handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
