@@ -38,3 +38,4 @@ export interface GeoLocation {
   speed?: number;
   timestamp: string;
 }
+
