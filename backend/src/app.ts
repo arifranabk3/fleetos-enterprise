@@ -11,6 +11,7 @@ import fleetRoutes from './routes/fleetRoutes';
 import logisticsRoutes from './routes/logisticsRoutes';
 import trackingRoutes from './routes/trackingRoutes';
 import maintenanceRoutes from './routes/maintenanceRoutes';
+import fuelRoutes from './routes/fuelRoutes';
 import { SocketService } from './services/SocketService';
 
 export const createApp = (): { app: Application; server: http.Server; io: SocketIOServer } => {
@@ -56,6 +57,7 @@ export const createApp = (): { app: Application; server: http.Server; io: Socket
   app.use('/api/v1', logisticsRoutes);
   app.use('/api/v1', trackingRoutes);
   app.use('/api/v1', maintenanceRoutes);
+  app.use('/api/v1', fuelRoutes);
 
   // Centralized Error Handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

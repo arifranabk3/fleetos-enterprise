@@ -38,6 +38,11 @@ const SUITES: SuiteDefinition[] = [
     file: 'src/tests/maintenance_compliance.test.ts',
     expectedTests: 24,
   },
+  {
+    name: 'Phase 08: Fuel Transactions, Efficiency Analytics & Anomaly Engine',
+    file: 'src/tests/fuel_management.test.ts',
+    expectedTests: 16,
+  },
 ];
 
 async function runCommand(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -101,7 +106,7 @@ async function runAllSuites() {
   console.log(`  Total Tests Passed    : ${totalTestsExpected} (100%)`);
   console.log(`  Execution Time        : ${durationSec}s`);
   console.log('================================================================================\n');
-  console.log('🎉 ALL 89 ENTERPRISE AUTOMATED TESTS PASSED WITH 100% SUCCESS!\n');
+  console.log(`🎉 ALL ${totalTestsExpected} ENTERPRISE AUTOMATED TESTS PASSED WITH 100% SUCCESS!\n`);
 }
 
 runAllSuites().catch((err) => {

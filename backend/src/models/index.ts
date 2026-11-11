@@ -27,6 +27,8 @@ export * from './MaintenanceRecord';
 export * from './MaintenanceSchedule';
 export * from './MaintenanceVendor';
 export * from './VehicleComplianceDocument';
+export * from './FuelVendor';
+export * from './FuelTransaction';
 export * from './Expense';
 export * from './Invoice';
 

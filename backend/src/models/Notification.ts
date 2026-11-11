@@ -3,7 +3,7 @@ import { Schema, model, Document, Types } from 'mongoose';
 export interface INotification extends Document {
   organizationId: Types.ObjectId;
   recipientUserId?: Types.ObjectId;
-  type: 'DISPATCH_ASSIGNED' | 'SHIPMENT_DELIVERED' | 'MAINTENANCE_DUE' | 'COMPLIANCE_EXPIRING' | 'SPEEDING_ALERT' | 'SYSTEM_ALERT';
+  type: 'DISPATCH_ASSIGNED' | 'SHIPMENT_DELIVERED' | 'MAINTENANCE_DUE' | 'COMPLIANCE_EXPIRING' | 'SPEEDING_ALERT' | 'FUEL_ANOMALY' | 'SYSTEM_ALERT';
   title: string;
   message: string;
   metadata?: Record<string, any>;
@@ -28,7 +28,7 @@ const NotificationSchema = new Schema<INotification>(
     },
     type: {
       type: String,
-      enum: ['DISPATCH_ASSIGNED', 'SHIPMENT_DELIVERED', 'MAINTENANCE_DUE', 'COMPLIANCE_EXPIRING', 'SPEEDING_ALERT', 'SYSTEM_ALERT'],
+      enum: ['DISPATCH_ASSIGNED', 'SHIPMENT_DELIVERED', 'MAINTENANCE_DUE', 'COMPLIANCE_EXPIRING', 'SPEEDING_ALERT', 'FUEL_ANOMALY', 'SYSTEM_ALERT'],
       required: true,
     },
     title: { type: String, required: true },
