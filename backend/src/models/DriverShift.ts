@@ -101,6 +101,8 @@ const DriverShiftSchema = new Schema<IDriverShift>(
 // Compound indexes: prevent overlapping active/scheduled shifts and fast queries
 DriverShiftSchema.index({ organizationId: 1, driverId: 1, shiftDate: 1 });
 DriverShiftSchema.index({ organizationId: 1, driverId: 1, status: 1 });
+DriverShiftSchema.index({ organizationId: 1, driverId: 1, plannedStart: -1 });
+DriverShiftSchema.index({ organizationId: 1, shiftDate: -1, status: 1 });
 DriverShiftSchema.index({ organizationId: 1, plannedStart: 1, plannedEnd: 1 });
 
 export const DriverShift = model<IDriverShift>('DriverShift', DriverShiftSchema);

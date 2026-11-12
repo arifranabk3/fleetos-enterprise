@@ -286,6 +286,7 @@ const ShipmentSchema = new Schema<IShipment>(
 ShipmentSchema.index({ organizationId: 1, trackingNumber: 1 }, { unique: true });
 ShipmentSchema.index({ organizationId: 1, status: 1, isArchived: 1 });
 ShipmentSchema.index({ organizationId: 1, customerId: 1 });
+ShipmentSchema.index({ organizationId: 1, driverId: 1, createdAt: -1 });
 ShipmentSchema.index({ trackingNumber: 1 }); // Public tracking / lookup
 
 export const Shipment = model<IShipment>('Shipment', ShipmentSchema);
