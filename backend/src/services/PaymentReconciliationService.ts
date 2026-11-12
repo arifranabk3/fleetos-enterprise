@@ -13,6 +13,7 @@ export interface RecordReceiptInput {
   paymentMethod: 'BANK_TRANSFER' | 'CREDIT_CARD' | 'CHECK' | 'CASH' | 'ACH' | 'WIRE' | 'OTHER';
   referenceNumber: string;
   allocations: Array<{
+    allocationId?: string;
     invoiceId: Types.ObjectId;
     invoiceNumber: string;
     allocatedAmountCents: number;
@@ -33,13 +34,23 @@ export class PaymentReconciliationService {
   ): Promise<IPaymentReceipt> {
     const orgId = typeof tenant.organizationId === 'string' ? new Types.ObjectId(tenant.organizationId) : tenant.organizationId;
 
-    // 1. Idempotency check
+    // 1. Idempotency check with payload fingerprint verification
     if (input.idempotencyKey) {
       const existing = await PaymentReceipt.findOne({
         organizationId: orgId,
         idempotencyKey: input.idempotencyKey,
       });
       if (existing) {
+        // Verify payload matches the original request
+        if (
+          existing.amountCents !== input.amountCents ||
+          existing.customerId.toString() !== input.customerId.toString() ||
+          existing.referenceNumber !== input.referenceNumber
+        ) {
+          throw new Error(
+            `IDEMPOTENCY_KEY_PAYLOAD_MISMATCH: Idempotency key '${input.idempotencyKey}' was already used with a different payment payload.`
+          );
+        }
         return existing;
       }
     }
@@ -73,7 +84,16 @@ export class PaymentReconciliationService {
       invoiceDocs.push(inv);
     }
 
-    // 4. Create the payment receipt
+    // 4. Create the payment receipt with deterministic allocation IDs based on idempotency or unique IDs
+    const enrichedAllocations = input.allocations.map((a, idx) => ({
+      ...a,
+      allocationId:
+        a.allocationId ||
+        (input.idempotencyKey
+          ? `ALLOC-${input.idempotencyKey}-${idx + 1}`
+          : `ALLOC-${new Types.ObjectId().toString()}`),
+    }));
+
     const receipt = await PaymentReceipt.create({
       organizationId: orgId,
       receiptNumber: input.receiptNumber,
@@ -83,7 +103,7 @@ export class PaymentReconciliationService {
       paymentDate: input.paymentDate || new Date(),
       paymentMethod: input.paymentMethod,
       referenceNumber: input.referenceNumber,
-      allocations: input.allocations,
+      allocations: enrichedAllocations,
       status: 'RECORDED',
       recordedBy: input.recordedBy,
       idempotencyKey: input.idempotencyKey,
@@ -93,39 +113,88 @@ export class PaymentReconciliationService {
           action: 'PAYMENT_RECORDED',
           performedBy: input.recordedBy,
           timestamp: new Date(),
-          note: `Recorded receipt with ${input.allocations.length} invoice allocations`,
+          note: `Recorded receipt with ${enrichedAllocations.length} invoice allocations`,
         },
       ],
     });
 
-    // 5. Update invoice balances and transition statuses safely
-    for (let i = 0; i < input.allocations.length; i++) {
-      const alloc = input.allocations[i];
-      const inv = invoiceDocs[i];
+    // 5. Update invoice balances atomically with CAS verification
+    const successfullyUpdatedInvoices: Array<{ invoiceId: Types.ObjectId; amountCents: number; allocationId: string }> = [];
 
-      inv.amountPaidCents += alloc.allocatedAmountCents;
-      inv.outstandingBalanceCents = Math.max(0, inv.totalAmountCents - inv.amountPaidCents);
+    try {
+      for (let i = 0; i < enrichedAllocations.length; i++) {
+        const alloc = enrichedAllocations[i];
 
-      const newStatus = inv.outstandingBalanceCents === 0 ? 'PAID' : 'PARTIALLY_PAID';
+        // Atomic CAS update: outstandingBalanceCents must be >= alloc.allocatedAmountCents
+        const updatedInv = await Invoice.findOneAndUpdate(
+          {
+            _id: alloc.invoiceId,
+            organizationId: orgId,
+            status: { $in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] },
+            outstandingBalanceCents: { $gte: alloc.allocatedAmountCents },
+          },
+          {
+            $inc: {
+              amountPaidCents: alloc.allocatedAmountCents,
+              outstandingBalanceCents: -alloc.allocatedAmountCents,
+            },
+            $push: {
+              auditTrail: {
+                action: 'PAYMENT_APPLIED',
+                performedBy: input.recordedBy,
+                timestamp: new Date(),
+                note: `[${alloc.allocationId}] Applied ${alloc.allocatedAmountCents} cents from Receipt ${receipt.receiptNumber}.`,
+              },
+            },
+          },
+          { new: true }
+        );
 
-      FinancialStateMachine.validateInvoiceTransition(inv.status, newStatus);
+        if (!updatedInv) {
+          throw new Error(
+            `ALLOCATION_RACE_DETECTED: Invoice ${alloc.invoiceNumber || alloc.invoiceId} outstanding balance changed or is insufficient.`
+          );
+        }
 
-      const oldStatus = inv.status;
-      inv.status = newStatus;
-      if (newStatus === 'PAID') {
-        inv.paidAt = new Date();
+        // Set status to PAID if balance reached 0
+        if (updatedInv.outstandingBalanceCents === 0) {
+          updatedInv.status = 'PAID';
+          updatedInv.paidAt = new Date();
+          await updatedInv.save();
+        } else if (updatedInv.status === 'ISSUED') {
+          updatedInv.status = 'PARTIALLY_PAID';
+          await updatedInv.save();
+        }
+
+        successfullyUpdatedInvoices.push({
+          invoiceId: alloc.invoiceId,
+          amountCents: alloc.allocatedAmountCents,
+          allocationId: alloc.allocationId,
+        });
       }
-
-      inv.auditTrail.push({
-        action: 'PAYMENT_APPLIED',
-        performedBy: input.recordedBy,
-        timestamp: new Date(),
-        note: `Applied ${alloc.allocatedAmountCents} cents from Receipt ${receipt.receiptNumber}. Remaining balance: ${inv.outstandingBalanceCents} cents.`,
-        previousStatus: oldStatus,
-        newStatus: newStatus,
-      });
-
-      await inv.save();
+    } catch (allocError) {
+      // Compensating transaction: rollback all allocations applied in this run and delete receipt
+      for (const applied of successfullyUpdatedInvoices) {
+        await Invoice.updateOne(
+          { _id: applied.invoiceId, organizationId: orgId },
+          {
+            $inc: {
+              amountPaidCents: -applied.amountCents,
+              outstandingBalanceCents: applied.amountCents,
+            },
+            $push: {
+              auditTrail: {
+                action: 'PAYMENT_COMPENSATING_ROLLBACK',
+                performedBy: input.recordedBy,
+                timestamp: new Date(),
+                note: `[${applied.allocationId}] Rolled back ${applied.amountCents} cents due to allocation race condition.`,
+              },
+            },
+          }
+        );
+      }
+      await PaymentReceipt.deleteOne({ _id: receipt._id, organizationId: orgId });
+      throw allocError;
     }
 
     return receipt;

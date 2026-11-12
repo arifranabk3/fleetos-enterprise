@@ -19,6 +19,12 @@ export default function FleetOverviewPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          <Link
+            href="/analytics/fleet"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-navy-200 bg-navy-50 text-navy-900 font-semibold text-xs shadow-sm hover:bg-navy-100 transition"
+          >
+            <span>Fleet Intelligence Analytics</span>
+          </Link>
           <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-graphite-200 bg-white text-navy-900 font-semibold text-xs shadow-sm hover:bg-graphite-50">
             <Filter className="w-3.5 h-3.5" />
             <span>Filter Assets</span>

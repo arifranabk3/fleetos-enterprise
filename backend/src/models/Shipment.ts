@@ -94,6 +94,8 @@ export interface IShipment extends Document {
     notes?: string;
   };
   billedInvoiceId?: Types.ObjectId | null;
+  billingReservationToken?: string | null;
+  billingReservationExpiresAt?: Date | null;
   createdBy: Types.ObjectId;
   isArchived: boolean;
   createdAt: Date;
@@ -261,6 +263,16 @@ const ShipmentSchema = new Schema<IShipment>(
     billedInvoiceId: {
       type: Schema.Types.ObjectId,
       ref: 'Invoice',
+      default: null,
+      index: true,
+    },
+    billingReservationToken: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    billingReservationExpiresAt: {
+      type: Date,
       default: null,
       index: true,
     },

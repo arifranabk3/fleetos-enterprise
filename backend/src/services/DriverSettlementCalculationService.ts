@@ -51,13 +51,25 @@ export class DriverSettlementCalculationService {
       );
     }
 
-    // 2. Fetch driver shifts in the period
-    const shifts = await DriverShift.find({
+    // 2. Fetch all completed driver shifts in the period, and verify none are already claimed
+    const totalEligibleShiftsInPeriod = await DriverShift.find({
       organizationId: orgId,
       driverId: input.driverId,
       plannedStart: { $gte: input.periodStart, $lte: input.periodEnd },
       status: 'COMPLETED',
     });
+
+    const alreadyClaimedShifts = totalEligibleShiftsInPeriod.filter(
+      (s) => s.settlementId != null
+    );
+
+    if (alreadyClaimedShifts.length > 0) {
+      throw new Error(
+        `PARTIAL_SHIFT_AVAILABILITY: Requested settlement period contains ${totalEligibleShiftsInPeriod.length} completed shift(s), but ${alreadyClaimedShifts.length} shift(s) are already claimed by an existing settlement. Partial settlements are strictly prohibited.`
+      );
+    }
+
+    const shifts = totalEligibleShiftsInPeriod;
 
     let totalHoursWorked = 0;
     let totalOvertimeHours = 0;
@@ -167,41 +179,76 @@ export class DriverSettlementCalculationService {
     const netPayCents = Math.max(0, grossPayCents - totalDeductionCents - taxWithheldCents);
 
     // 8. Create Settlement
-    const settlement = await DriverSettlement.create({
-      organizationId: orgId,
-      settlementNumber: input.settlementNumber,
-      driverId: input.driverId,
-      periodStart: input.periodStart,
-      periodEnd: input.periodEnd,
-      status: 'CALCULATED',
-      currency: 'USD',
-      totalDispatches,
-      totalDistanceKm: Math.round(totalDistanceKm),
-      totalHoursWorked: Math.round(totalHoursWorked * 10) / 10,
-      totalOvertimeHours: Math.round(totalOvertimeHours * 10) / 10,
-      basePayCents,
-      mileagePayCents,
-      overtimePayCents,
-      bonuses,
-      totalBonusCents,
-      deductions,
-      totalDeductionCents,
-      grossPayCents,
-      taxWithheldCents,
-      netPayCents,
-      dispatchesIncluded: dispatches.map((d) => d._id as Types.ObjectId),
-      shiftsIncluded: shifts.map((s) => s._id as Types.ObjectId),
-      calculatedAt: new Date(),
-      notes: input.notes,
-      auditTrail: [
-        {
-          action: 'SETTLEMENT_CALCULATED',
-          performedBy: input.calculatedBy,
-          timestamp: new Date(),
-          note: `Calculated from ${shifts.length} shifts and ${dispatches.length} dispatches. Net pay: ${netPayCents} cents.`,
-        },
-      ],
-    });
+    let settlement;
+    try {
+      settlement = await DriverSettlement.create({
+        organizationId: orgId,
+        settlementNumber: input.settlementNumber,
+        driverId: input.driverId,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        status: 'CALCULATED',
+        currency: 'USD',
+        totalDispatches,
+        totalDistanceKm: Math.round(totalDistanceKm),
+        totalHoursWorked: Math.round(totalHoursWorked * 10) / 10,
+        totalOvertimeHours: Math.round(totalOvertimeHours * 10) / 10,
+        basePayCents,
+        mileagePayCents,
+        overtimePayCents,
+        bonuses,
+        totalBonusCents,
+        deductions,
+        totalDeductionCents,
+        grossPayCents,
+        taxWithheldCents,
+        netPayCents,
+        dispatchesIncluded: dispatches.map((d) => d._id as Types.ObjectId),
+        shiftsIncluded: shifts.map((s) => s._id as Types.ObjectId),
+        calculatedAt: new Date(),
+        notes: input.notes,
+        auditTrail: [
+          {
+            action: 'SETTLEMENT_CALCULATED',
+            performedBy: input.calculatedBy,
+            timestamp: new Date(),
+            note: `Calculated from ${shifts.length} shifts and ${dispatches.length} dispatches. Net pay: ${netPayCents} cents.`,
+          },
+        ],
+      });
+
+      // Atomically claim shifts with this settlementId (CAS: only unclaimed shifts)
+      if (shifts.length > 0) {
+        const claimResult = await DriverShift.updateMany(
+          {
+            _id: { $in: shifts.map((s) => s._id) },
+            organizationId: orgId,
+            driverId: input.driverId, // Verify driver and org ownership
+            $or: [{ settlementId: null }, { settlementId: { $exists: false } }],
+          },
+          { $set: { settlementId: settlement._id } }
+        );
+
+        if (claimResult.modifiedCount !== shifts.length) {
+          // Compensating rollback: delete generated settlement and release any claimed shifts
+          await DriverShift.updateMany(
+            { settlementId: settlement._id, organizationId: orgId },
+            { $set: { settlementId: null } }
+          );
+          await DriverSettlement.deleteOne({ _id: settlement._id, organizationId: orgId });
+          throw new Error('SHIFT_CLAIM_CONFLICT: One or more shifts were concurrently claimed by another settlement.');
+        }
+      }
+    } catch (createErr) {
+      if (settlement) {
+        await DriverShift.updateMany(
+          { settlementId: settlement._id, organizationId: orgId },
+          { $set: { settlementId: null } }
+        );
+        await DriverSettlement.deleteOne({ _id: settlement._id, organizationId: orgId });
+      }
+      throw createErr;
+    }
 
     return settlement;
   }
