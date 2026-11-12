@@ -73,6 +73,11 @@ const SUITES: SuiteDefinition[] = [
     file: 'src/tests/fleet_analytics.test.ts',
     expectedTests: 11,
   },
+  {
+    name: 'Phase 11.2.1: Advanced Driver Analytics & Workforce Engine',
+    file: 'src/tests/driver_analytics.test.ts',
+    expectedTests: 22,
+  },
 ];
 
 async function runCommand(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {

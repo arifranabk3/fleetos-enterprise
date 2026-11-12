@@ -142,6 +142,7 @@ const DriverIncidentSchema = new Schema<IDriverIncident>(
 
 // Compound tenant isolation indexes
 DriverIncidentSchema.index({ organizationId: 1, incidentNumber: 1 }, { unique: true });
+DriverIncidentSchema.index({ organizationId: 1, driverId: 1, incidentDate: -1 });
 DriverIncidentSchema.index({ organizationId: 1, driverId: 1, status: 1 });
 DriverIncidentSchema.index({ organizationId: 1, driverId: 1, responsibilityStatus: 1 });
 DriverIncidentSchema.index({ organizationId: 1, severity: 1, status: 1 });
