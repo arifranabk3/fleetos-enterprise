@@ -68,6 +68,11 @@ const SUITES: SuiteDefinition[] = [
     file: 'src/tests/financial_hardening.test.ts',
     expectedTests: 11,
   },
+  {
+    name: 'Phase 11.1: Fleet Utilization, Asset & Telemetry Intelligence',
+    file: 'src/tests/fleet_analytics.test.ts',
+    expectedTests: 11,
+  },
 ];
 
 async function runCommand(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
