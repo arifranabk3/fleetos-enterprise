@@ -1,7 +1,16 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Circle,
+  useMap,
+} from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import {
   Truck,
   MapPin,
@@ -22,27 +31,36 @@ import {
 } from 'lucide-react';
 import { DEMO_VEHICLES, DemoVehicle } from '@/lib/demoData';
 
-// Dynamically import Leaflet map components to prevent SSR window reference crashes
-const MapContainer = dynamic(
-  () => import('react-leaflet').then((mod) => mod.MapContainer),
-  { ssr: false }
-);
-const TileLayer = dynamic(
-  () => import('react-leaflet').then((mod) => mod.TileLayer),
-  { ssr: false }
-);
-const Marker = dynamic(
-  () => import('react-leaflet').then((mod) => mod.Marker),
-  { ssr: false }
-);
-const Popup = dynamic(
-  () => import('react-leaflet').then((mod) => mod.Popup),
-  { ssr: false }
-);
-const Circle = dynamic(
-  () => import('react-leaflet').then((mod) => mod.Circle),
-  { ssr: false }
-);
+// Fix default Leaflet icon paths in Next.js bundler environment
+const defaultMarkerIcon = L.icon({
+  iconUrl: '/marker-icon.png',
+  iconRetinaUrl: '/marker-icon-2x.png',
+  shadowUrl: '/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+// Component to handle map center changes and force size recalculation on container render
+function MapController({ center }: { center: [number, number] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    // Invalidate size immediately and after mount transitions
+    map.invalidateSize();
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [map]);
+
+  useEffect(() => {
+    map.setView(center, map.getZoom(), { animate: true });
+  }, [center, map]);
+
+  return null;
+}
 
 interface TelemetryPoint {
   vehicleId: string;
@@ -267,7 +285,9 @@ export default function OperationsMapClient() {
                 zoom={11}
                 scrollWheelZoom={true}
                 className="w-full h-full z-0"
+                style={{ height: '100%', width: '100%' }}
               >
+                <MapController center={[currentSelected.lat, currentSelected.lng]} />
                 <TileLayer
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -287,7 +307,7 @@ export default function OperationsMapClient() {
 
                 {/* Render markers for all vehicles */}
                 {vehicles.map((v) => (
-                  <Marker key={v.id} position={[v.lat, v.lng]}>
+                  <Marker key={v.id} position={[v.lat, v.lng]} icon={defaultMarkerIcon}>
                     <Popup>
                       <div className="text-xs p-1 font-sans">
                         <div className="font-mono font-extrabold text-navy-900 text-sm">{v.plate}</div>
